@@ -1,14 +1,12 @@
 const mongoose = require("mongoose");
 
 const AdminSchema = new mongoose.Schema({
-  admin_id: String,
   firstName: String,
   lastName: String,
   adminKey: String,
   email: { type: String },
   password: { type: String },
   phone: { type: String },
-  googleId: { type: String },
   otp: String,
   otpExpires: Date,
   tokens: {

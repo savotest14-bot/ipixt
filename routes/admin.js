@@ -1,10 +1,29 @@
 const express = require("express");
 const router = express.Router();
-const { adminLogin, logout } = require("../controllers/admin");
-const { userLogin } = require("../validations/validator");
+const {
+  adminLogin,
+  logout,
+  forgotPassword,
+  resetPassword,
+} = require("../controllers/admin");
+const {
+  userLogin,
+  forgotPasswordValidation,
+  setPasswordValidation,
+} = require("../validations/validator");
 const validate = require("../middlewares/validate");
 
-router.post("/login", validate(userLogin), adminLogin);
-router.post("/logout", logout);
+router.post("/signin", validate(userLogin), adminLogin);
+router.post("/signout", logout);
+router.post(
+  "/forgot-password",
+  validate(forgotPasswordValidation),
+  forgotPassword
+);
+router.post(
+  "/reset-password/:token",
+  validate(setPasswordValidation),
+  resetPassword
+);
 
 module.exports = router;
