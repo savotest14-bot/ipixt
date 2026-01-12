@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const User = require('../models/users');
+const Admin = require('../models/admin');
 
 exports.authenticate = async (req, res, next) => {
 
@@ -21,7 +21,7 @@ exports.authenticate = async (req, res, next) => {
         }
 
         try {
-            const user = await User.findOne({ _id: decoded.userId, isDeleted: false, tokens: token }, { email: 1, phoneNumber: 1, role: 1 }).lean(true);
+            const user = await Admin.findOne({ _id: decoded.userId, isDeleted: false, tokens: token }, { email: 1, role: 1 }).lean(true);
 
             if (!user) {
                 return res.status(401).json({ message: 'Token revoked. Please login.' });

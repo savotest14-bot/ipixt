@@ -4,7 +4,7 @@ const { adminLogin, logout } = require("../controllers/admin");
 const { userLogin } = require("../validations/validator");
 const validate = require("../middlewares/validate");
 
-router.post("/login", validate(userLogin), adminLogin);
-router.post("/logout", logout);
+router.post("/signin", validate(userLogin), adminLogin);
+router.post("/signout", logout);
 
 module.exports = router;

@@ -7,6 +7,7 @@ const dotenv = require("dotenv").config();
 const fs = require("fs");
 const connectDB = require("./config/dbConnection");
 const adminRoutes = require("./routes/admin");
+const categoryRoutes = require("./routes/category");
 // require("./functions/scheduler");
 
 
@@ -18,7 +19,10 @@ app.use(
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   })
 );
-
+app.use(
+  "/uploads",
+  express.static(path.join(__dirname, "uploads"))
+);
 // const session = require("express-session");
 const port = process.env.PORT || 4000;
 
@@ -65,7 +69,8 @@ app.use("/health", (req, res) => res.send(`Welcome to the server`));
 app.use("/api/user", require("./routes/userRoutes"));
 // app.use("/api/general", require("./routes/generalRoutes"));
 
-app.use("/api/admin", adminRoutes)
+app.use("/api/admin", adminRoutes);
+app.use("/api/category", categoryRoutes);
 
 
 // require("./functions/cornJob");

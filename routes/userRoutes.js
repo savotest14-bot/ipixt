@@ -13,6 +13,8 @@ const {
   verifyPhoneNumber,
   setPassword,
   resetPassword,
+  savePersonalAndKycDetails,
+  updateUserCategoriesAndRole,
 } = require("../controllers/userController");
 
 const {
@@ -21,9 +23,12 @@ const {
   verifyOTPValidation,
   setPasswordValidation,
   resetPasswordValidation,
+  personalKycSchema,
 } = require("../validations/validator");
 const validate = require("../middlewares/validate");
 const { authenticate } = require("../middlewares/authentication");
+const checkRole = require("../middlewares/checkRole");
+const { getAllCategories } = require("../controllers/category");
 
 router.post("/register", validate(userValidation), register);
 // router.post("/auth/google-login", userGoogleLogin);
@@ -37,5 +42,8 @@ router.post("/reset-password", validate(resetPasswordValidation), resetPassword)
 router.post("/login", validate(userLogin), login);
 router.get("/dashboard", authenticate, dashboard);
 router.post("/logout", logout);
+router.put("/personal-kyc", authenticate, validate(personalKycSchema), savePersonalAndKycDetails);
+router.get("/getAllCategories", authenticate, getAllCategories);
+router.put("/update-role", authenticate,  updateUserCategoriesAndRole);
 
 module.exports = router;
