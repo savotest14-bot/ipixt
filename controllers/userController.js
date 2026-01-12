@@ -20,22 +20,27 @@ const jwt = require("jsonwebtoken");
 
 exports.register = async (req, res) => {
   try {
-    const { email, phoneNumber } = req.body || {};
+    const { email, phoneNumber, countryCode } = req.body || {};
 
     if (!email && !phoneNumber) {
-      return res.status(400).send({ message: "Email or phone is required" });
+      return res.status(400).json({ message: "Email or phone is required" });
+    }
+    if (phoneNumber && !countryCode) {
+      return res.status(400).json({
+        message: "Country code is required when phone number is provided",
+      });
+    }
+    const orConditions = [];
+
+    if (email) {
+      orConditions.push({ email: email.toLowerCase().trim() });
     }
 
-    let query = {};
-    if (email) query.email = email.toLowerCase().trim();
-    if (phoneNumber) query.phoneNumber = phoneNumber.trim();
+    if (phoneNumber) {
+      orConditions.push({ phoneNumber: phoneNumber.trim() });
+    }
 
-    let existing = await User.findOne({
-      $or: [
-        { email: email ? email.toLowerCase().trim() : null },
-        { phoneNumber: phoneNumber ? phoneNumber.trim() : null }
-      ]
-    });
+    const existing = await User.findOne({ $or: orConditions });
 
     const otp = generateOTP();
     const hashedOTP = await hashOTP(otp);
@@ -43,59 +48,50 @@ exports.register = async (req, res) => {
 
     if (existing) {
       if (existing.isVerified) {
-        return res.status(400).send({
-          message:
-            "User already registered. Please login or use another email/phone.",
-        });
-      } else {
-        existing.otp = hashedOTP;
-        existing.otpExpiry = otpExpiry;
-        await existing.save();
-
-        const mailVariable = {
-          "%otp%": otp,
-          "%email%": email || "",
-          "%phone%": phoneNumber || "",
-        };
-
-        if (email) sendMail("send-otp", mailVariable, email);
-        // if (phoneNumber) await sendSMSOTP(phoneNumber, otp);
-
-        return res.status(200).json({
-          message: `OTP sent successfully to ${email || phoneNumber}`,
-          userId: existing._id,
+        return res.status(400).json({
+          message: "User already registered. Please login.",
         });
       }
+
+      existing.otp = hashedOTP;
+      existing.otpExpiry = otpExpiry;
+      await existing.save();
+
+      if (email) {
+        await sendMail("send-otp", { "%otp%": otp }, email);
+      }
+
+      return res.status(200).json({
+        message: `OTP sent successfully to ${email || phoneNumber}`,
+        userId: existing._id,
+        otp
+      });
     }
 
     const user = await User.create({
       email: email?.toLowerCase().trim() || null,
       phoneNumber: phoneNumber?.trim() || null,
       otp: hashedOTP,
+      countryCode,
       otpExpiry,
       isVerified: false,
-      role: "USER",
     });
 
-    const mailVariable = {
-      "%otp%": otp,
-      "%email%": email || "",
-      "%phone%": phoneNumber || "",
-    };
-
-    if (email) await sendMail("send-otp", mailVariable, email);
-    // if (phoneNumber) await sendSMSOTP(phoneNumber, otp);
+    if (email) {
+      await sendMail("send-otp", { "%otp%": otp }, email);
+    }
 
     return res.status(201).json({
       message: `OTP sent successfully to ${email || phoneNumber}`,
       userId: user._id,
-      otp: otp
+      otp
     });
   } catch (error) {
-    console.log("register-error", error);
-    return res.status(500).send({ message: "Internal Server Error" });
+    console.error("register-error", error);
+    return res.status(500).json({ message: "Internal Server Error" });
   }
 };
+
 
 exports.verifyPhoneNumber = async (req, res) => {
   try {
@@ -205,7 +201,7 @@ exports.createUser = async (req, res) => {
   } catch (error) {
     return res.status(500).send({ message: error.message });
   }
-}; 
+};
 
 exports.verifyOTP = async (req, res) => {
   try {
@@ -284,10 +280,20 @@ exports.setPassword = async (req, res) => {
     }
 
     user.password = newPassword;
+
+    const token = jwt.sign(
+      { userId: user._id },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+    await User.updateOne({ _id: user._id }, { $unset: { otp: "", otpExpires: "" }, $push: { tokens: token } });
     await user.save();
 
     return res.status(200).send({
       message: "Password created successfully",
+      isKycCompleted: user.isKycCompleted,
+      role: user.role,
+      token
     });
   } catch (error) {
     console.log("set-password-error", error);
@@ -395,13 +401,21 @@ exports.resendOTP = async (req, res) => {
 
 exports.login = async (req, res) => {
   try {
-    const { email, phoneNumber, password } = req.body;
+    const { email, phoneNumber, countryCode, password } = req.body;
 
     const user = await User.findOne({
-      $or: [{ email }, { phoneNumber }],
+      isDeleted: false,
+      $or: [
+        { email: email?.toLowerCase() },
+        {
+          countryCode,
+          phoneNumber
+        }
+      ]
     })
       .select("+password")
       .lean();
+
 
     if (!user) {
       return res.status(404).send({ message: "User not found" });
@@ -420,16 +434,17 @@ exports.login = async (req, res) => {
       return res.status(400).send({ message: "Incorrect password" });
     }
 
-
     const token = jwt.sign(
       { userId: user._id },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
-   await User.updateOne({ _id: admin._id }, { $unset: { otp: "", otpExpires: "" }, $push: { tokens: token } });
-   
+    await User.updateOne({ _id: user._id }, { $unset: { otp: "", otpExpires: "" }, $push: { tokens: token } });
+
     return res.status(200).send({
       message: "Login successful",
+      isKycCompleted: user.isKycCompleted,
+      role: user.role,
       token,
     });
   } catch (err) {
@@ -473,4 +488,94 @@ exports.logout = async (req, res) => {
       return res.status(500).json({ message: error.message });
     }
   });
+};
+
+
+exports.savePersonalAndKycDetails = async (req, res) => {
+  try {
+    const {
+      firstName,
+      lastName,
+      businessName,
+      businessId,
+      currency,
+      country,
+      kyc
+    } = req.body;
+
+    const [day, month, year] = req.body.dob.split("/");
+    const parsedDob = new Date(`${year}-${month}-${day}`);
+    await User.findByIdAndUpdate(
+      req.user._id,
+      {
+        firstName,
+        lastName,
+        dob: parsedDob,
+        businessName,
+        businessId,
+        currency,
+        country,
+        kyc,
+        isKycCompleted: true
+      },
+      {
+        new: true,
+        runValidators: false
+      }
+    );
+
+    res.status(200).json({
+      message: "Personal & KYC details saved successfully"
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Failed to save personal details",
+      error: error.message
+    });
+  }
+};
+
+exports.updateUserCategoriesAndRole = async (req, res) => {
+  try {
+    const { categories, role } = req.body;
+
+    if (categories && !Array.isArray(categories)) {
+      return res.status(400).json({
+        message: "Categories must be an array"
+      });
+    }
+
+    if (role && !["buyer", "seller", "both"].includes(role)) {
+      return res.status(400).json({
+        message: "Invalid role"
+      });
+    }
+
+    const updateData = {};
+
+    if (categories && categories.length) {
+      updateData.$addToSet = {
+        categories: { $each: categories }
+      };
+    }
+
+    if (role) {
+      updateData.$set = { role };
+    }
+
+    await User.findByIdAndUpdate(
+      req.user._id,
+      updateData,
+      { new: true }
+    );
+
+    res.status(200).json({
+      message: "Categories and role updated successfully"
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Failed to update data",
+      error: error.message
+    });
+  }
 };

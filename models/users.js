@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
+const e = require("express");
 
 const userSchema = new mongoose.Schema(
   {
@@ -20,24 +21,26 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
-    address: {
-      type: {
-        streetAddress: {
-          type: String,
-        },
-        city: {
-          type: String,
-        },
-        state: {
-          type: String,
-        },
-        country: {
-          type: String,
-        },
-        zipCode: {
-          type: Number,
-        },
-      },
+    country: {
+      type: String,
+    },
+    businessName: String,
+    businessId: String,
+    currency: String,
+    dob: Date,
+    kyc: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
+    },
+    isKycCompleted: {
+      type: Boolean,
+      default: false,
+    },
+    countryCode: {
+      type: String,
+    },
+    phoneNumber: {
+      type: String,
     },
     isVerified: {
       type: Boolean,
@@ -47,14 +50,22 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: "active",
     },
-    phoneNumber: {
-      type: String,
-    },
     otp: {
       type: String,
     },
     otpExpiry: {
       type: Date,
+    },
+    categories: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Category",
+      }
+    ],
+    role: {
+      enum: ["buyer", "seller", "both"],
+      type: String,
+      default: null,
     },
     tokens: {
       type: [String],
@@ -63,11 +74,13 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
-    role: {
-      type: String,
-    },
   },
   { timestamps: true }
+);
+
+userSchema.index(
+  { countryCode: 1, phoneNumber: 1 },
+  { unique: true }
 );
 
 userSchema.pre("save", async function () {
