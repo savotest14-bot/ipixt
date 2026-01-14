@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
-const e = require("express");
+
 
 const userSchema = new mongoose.Schema(
   {
@@ -62,10 +62,22 @@ const userSchema = new mongoose.Schema(
         ref: "Category",
       }
     ],
+    isPasswordSet: {
+      type: Boolean,
+      default: false,
+    },
     role: {
       enum: ["buyer", "seller", "both"],
       type: String,
       default: null,
+    },
+    followersCount: {
+      type: Number,
+      default: 0
+    },
+    followingCount: {
+      type: Number,
+      default: 0
     },
     tokens: {
       type: [String],
@@ -74,14 +86,77 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    address: {
+      latitude: {
+        type: Number,
+      },
+      longitude: {
+        type: Number,
+      },
+      address: {
+        type: String,
+        trim: true,
+      },
+    },
+    location: {
+      type: {
+        type: String,
+        enum: ["Point"],
+        default: "Point",
+      },
+      coordinates: {
+        type: [Number],
+      },
+    },
+
+    profilePic: {
+      type: String,
+      default: null
+    },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true }
+  }
 );
 
 userSchema.index(
   { countryCode: 1, phoneNumber: 1 },
   { unique: true }
 );
+
+userSchema.index({ location: "2dsphere" });
+
+
+userSchema.virtual("profileCompletion").get(function () {
+  let completed = 0;
+  let total = 9;
+
+  if (this.firstName) completed++;
+  if (this.lastName) completed++;
+
+  if (this.email || (this.phoneNumber && this.countryCode)) completed++;
+
+  if (this.profilePic) completed++;
+  if (this.dob) completed++;
+  if (this.country) completed++;
+
+  if (this.categories?.length) completed++;
+
+  if (
+    (this.role === "seller" || this.role === "both") &&
+    this.businessName
+  ) {
+    completed++;
+  }
+
+  if (this.isKycCompleted) completed++;
+
+  return Math.round((completed / total) * 100);
+});
+
+
 
 userSchema.pre("save", async function () {
   if (!this.isModified("password")) return;

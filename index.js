@@ -9,7 +9,7 @@ const connectDB = require("./config/dbConnection");
 const adminRoutes = require("./routes/admin");
 const categoryRoutes = require("./routes/category");
 // require("./functions/scheduler");
-
+require("./cron/expireMediaRequests");
 
 connectDB();
 const app = express();
@@ -71,6 +71,9 @@ app.use("/api/user", require("./routes/userRoutes"));
 
 app.use("/api/admin", adminRoutes);
 app.use("/api/category", categoryRoutes);
+app.use("/api/seller", require("./routes/seller"));
+app.use("/api/buyer", require("./routes/buyer"));
+
 
 
 // require("./functions/cornJob");

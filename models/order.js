@@ -1,8 +1,17 @@
+const mongoose = require("mongoose");
+
 const orderSchema = new mongoose.Schema(
   {
+    orderNumber: {
+      type: String,
+      unique: true,
+      index: true
+    },
+
     buyer: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User"
+      ref: "User",
+      required: true
     },
 
     seller: {
@@ -13,17 +22,79 @@ const orderSchema = new mongoose.Schema(
 
     item: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Item"
+      ref: "Item",
+      required: true
     },
 
-    amount: Number,
-    currency: String,
+    contentType: {
+      type: String,
+      enum: ["image", "video", "audio", "document"]
+    },
+
+    basePrice: {
+      type: Number,
+      required: true
+    },
+
+    buyerCommission: {
+      type: Number,
+      required: true
+    },
+
+    sellerCommission: {
+      type: Number,
+      required: true
+    },
+
+    amountPaid: {
+      type: Number,
+      required: true // basePrice + buyerCommission
+    },
+
+    sellerEarning: {
+      type: Number,
+      required: true // basePrice - sellerCommission
+    },
+
+    currency: {
+      type: String,
+      default: "USD"
+    },
+
+    paymentMethod: {
+      type: String,
+      enum: ["card", "paypal", "applepay", "googlepay", "bank"]
+    },
+
+    paymentGateway: {
+      type: String,
+      enum: ["stripe", "razorpay", "paypal"]
+    },
+
+    paymentId: {
+      type: String,
+      required: true,
+      index: true
+    },
 
     status: {
       type: String,
-      enum: ["pending", "paid", "failed"],
-      default: "pending"
-    }
+      enum: ["paid", "refunded", "failed"],
+      default: "paid"
+    },
+
+    receiptUrl: String,
+
+    refundedAt: Date
   },
   { timestamps: true }
 );
+
+orderSchema.pre("save", function (next) {
+  if (!this.orderNumber) {
+    this.orderNumber = `ORD-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  }
+  next();
+});
+
+module.exports = mongoose.model("Order", orderSchema);
