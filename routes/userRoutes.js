@@ -28,6 +28,7 @@ const {
   upsertUserAddress,
   getItemByPublicToken,
   getSocialSuggestions,
+  notificationSettings,
 
 } = require("../controllers/userController");
 
@@ -86,6 +87,6 @@ router.post("/toggleFavorite/:itemId", authenticate, toggleFavorite);
 router.get("/getMyFavoriteItems", authenticate, getMyFavoriteItems);
 router.put("/updateLocation", authenticate, upsertUserAddress);
 router.get("/commission", authenticate, getCommissionForUser);
-
+router.patch("/notifications/settings", authenticate, notificationSettings);
 
 module.exports = router;

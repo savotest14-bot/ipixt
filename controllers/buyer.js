@@ -207,10 +207,7 @@ exports.getLatestItemsForBuyer = async (req, res) => {
       .select("address")
       .lean();
 
-    if (
-      !buyer?.address?.latitude ||
-      !buyer?.address?.longitude
-    ) {
+    if (!buyer?.address?.latitude || !buyer?.address?.longitude) {
       return res.status(400).json({
         message: "Buyer location not found"
       });
@@ -221,17 +218,12 @@ exports.getLatestItemsForBuyer = async (req, res) => {
     const skip = (page - 1) * limit;
     const search = req.query.search?.trim();
 
-
     const pipeline = [
-
       {
         $geoNear: {
           near: {
             type: "Point",
-            coordinates: [
-              buyer.address.longitude,
-              buyer.address.latitude
-            ]
+            coordinates: [buyer.address.longitude, buyer.address.latitude]
           },
           distanceField: "distance",
           spherical: true,
@@ -252,80 +244,97 @@ exports.getLatestItemsForBuyer = async (req, res) => {
         }
       },
 
+      {
+        $addFields: {
+          items: {
+            $filter: {
+              input: "$items",
+              as: "item",
+              cond: {
+                $and: [
+                  { $eq: ["$$item.isActive", true] },
+                  { $eq: ["$$item.isPublished", true] },
+                  { $eq: ["$$item.isDeleted", false] }
+                ]
+              }
+            }
+          }
+        }
+      },
+
+      { $match: { "items.0": { $exists: true } } },
+
+      ...(search
+        ? [
+            {
+              $addFields: {
+                items: {
+                  $filter: {
+                    input: "$items",
+                    as: "item",
+                    cond: {
+                      $or: [
+                        { $regexMatch: { input: "$$item.title", regex: search, options: "i" } },
+                        { $regexMatch: { input: "$$item.description", regex: search, options: "i" } },
+                        { $regexMatch: { input: { $reduce: { input: "$$item.tags", initialValue: "", in: { $concat: ["$$value", ",", "$$this"] } } }, regex: search, options: "i" } }
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            { $match: { "items.0": { $exists: true } } }
+          ]
+        : []),
+
       { $unwind: "$items" },
 
       {
-        $match: {
-          "items.isActive": true,
-          "items.isPublished": true,
-          "items.isDeleted": false
+        $lookup: {
+          from: "categories",
+          localField: "items.category",
+          foreignField: "_id",
+          as: "categories"
         }
-      }
-    ];
+      },
 
-
-    if (search) {
-      pipeline.push({
-        $match: {
-          $or: [
-            { "items.title": { $regex: search, $options: "i" } },
-            { "items.description": { $regex: search, $options: "i" } },
-            { "items.tags": { $regex: search, $options: "i" } }
-          ]
+      {
+        $addFields: {
+          category: { $arrayElemAt: ["$categories", 0] }
         }
-      });
-    }
+      },
 
-    pipeline.push(
-      { $sort: { distance: 1, "items.createdAt": -1 } },
+      {
+        $project: {
+          _id: "$items._id",
+          title: "$items.title",
+          description: "$items.description",
+          price: "$items.price",
+          media: { $ifNull: ["$items.media", []] }, 
+          createdAt: "$items.createdAt",
+          distance: { $round: ["$distance", 0] },
+          category: {
+            _id: "$category._id",
+            title: "$category.title"
+          },
+          seller: {
+            _id: "$_id",
+            firstName: "$firstName",
+            lastName: "$lastName",
+            profilePic: "$profilePic"
+          }
+        }
+      },
+
+      { $sort: { distance: 1, createdAt: -1 } },
 
       {
         $facet: {
           metadata: [{ $count: "total" }],
-          data: [
-            { $skip: skip },
-            { $limit: limit },
-
-            {
-              $lookup: {
-                from: "categories",
-                localField: "items.category",
-                foreignField: "_id",
-                as: "category"
-              }
-            },
-            { $unwind: "$category" },
-
-            {
-              $project: {
-                _id: "$items._id",
-                title: "$items.title",
-                description: "$items.description",
-                price: "$items.price",
-                media: "$items.media",
-                createdAt: "$items.createdAt",
-
-                distance: {
-                  $round: ["$distance", 0]
-                },
-
-                category: {
-                  _id: "$category._id",
-                  title: "$category.title"
-                },
-
-                seller: {
-                  _id: "$_id",
-                  firstName: "$firstName",
-                  lastName: "$lastName",
-                  profilePic: "$profilePic"
-                }
-              }
-            }
-          ]
+          data: [{ $skip: skip }, { $limit: limit }]
         }
       }
-    );
+    ];
 
     const result = await User.aggregate(pipeline);
 
@@ -341,16 +350,15 @@ exports.getLatestItemsForBuyer = async (req, res) => {
       },
       data: result[0]?.data || []
     });
-
   } catch (error) {
     console.error("getLatestItemsForBuyer error:", error);
-
     return res.status(500).json({
       message: "Failed to fetch latest items",
       error: error.message
     });
   }
 };
+
 
 
 

@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const { authenticate } = require("../middlewares/authentication");
-const { createItemWithQr, getMyItems, getItemById, softDeleteItem, getIncomingMediaRequests, updateMediaRequestStatus } = require("../controllers/seller");
+const { createItemWithQr, getMyItems, getItemById, softDeleteItem, getIncomingMediaRequests, updateMediaRequestStatus, updateItem } = require("../controllers/seller");
 const { upload } = require("../middlewares/upload");
 const checkRole = require("../middlewares/checkRole");
 
@@ -18,6 +18,13 @@ router.get("/getItem/:itemId", authenticate, checkRole("seller", "both"), getIte
 router.patch("/deleteItem/:itemId", authenticate, checkRole("seller", "both"), softDeleteItem)
 router.get("/getIncomingMediaRequests", authenticate, checkRole("seller", "both"), getIncomingMediaRequests);
 router.put("/updateMediaRequestStatus/:requestId", authenticate, checkRole("seller", "both"), updateMediaRequestStatus);
+router.put("/updateItem/:itemId", authenticate, checkRole("seller", "both"),
+ upload.fields([
+    { name: "mediaPhoto", maxCount: 6 },
+    { name: "mediaVideo", maxCount: 6 },
+    { name: "mediaAudio", maxCount: 6 },
+    { name: "mediaDocument", maxCount: 6 },
+  ]), updateItem);
 
 
 module.exports = router;

@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Realtime Chat Test (Correct)</title>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+  <style>
+    body { font-family: Arial; padding: 20px; background: #f5f5f5; }
+    input, button { padding: 6px; margin: 4px 0; }
+    #chat { height: 350px; background: #fff; border: 1px solid #ccc; overflow-y: auto; padding: 10px; }
+    .me { color: green; }
+    .other { color: blue; }
+    .system { color: gray; font-size: 13px; }
+    .tick.grey { color: gray; }
+    .tick.blue { color: #1e88e5; font-weight: bold; }
+  </style>
+</head>
+<body>
+
+<h2>🧪 Realtime Chat Test (Socket.js Aligned)</h2>
+
+JWT Token<br>
+<input id="token" size="90"><br>
+
+My User ID<br>
+<input id="myId"><br>
+
+Other User ID<br>
+<input id="otherId"><br>
+
+<button onclick="connectSocket()">🔌 Connect Socket</button>
+
+<hr>
+
+<button onclick="createConversation()">💬 Create / Get Conversation</button>
+<p><b>Conversation ID:</b> <span id="conversationId">—</span></p>
+
+<hr>
+
+<input id="message" placeholder="Type message"><br>
+<input type="file" id="files" multiple><br>
+
+<button onclick="sendMessage()">📨 Send</button>
+<button onclick="markSeen()">✔✔ Mark Seen</button>
+
+<div id="typing"></div>
+<div id="chat"></div>
+
+<script>
+let socket;
+let conversationId;
+const API = "http://localhost:8000/api/chat";
+
+/* ---------------- SOCKET ---------------- */
+function connectSocket() {
+  socket = io("http://localhost:8000");
+
+  socket.emit("user-online", myId.value);
+
+  socket.on("user-status", d => {
+    system(`User ${d.userId} is ${d.online ? "ONLINE 🟢" : "OFFLINE ⚪"}`);
+  });
+
+  socket.on("receive-message", async ({ messageId }) => {
+    const msg = await fetchMessage(messageId);
+    render("other", msg.content || "[Media]");
+  });
+
+  socket.on("message-status", ({ messageId, status }) => {
+    updateTick(messageId, status);
+  });
+
+  socket.on("typing", () => typing.innerText = "Typing...");
+  socket.on("stop-typing", () => typing.innerText = "");
+
+  alert("Socket connected");
+}
+
+/* ---------------- REST ---------------- */
+async function createConversation() {
+  const res = await fetch(`${API}/conversation`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + token.value
+    },
+    body: JSON.stringify({ userId: otherId.value })
+  });
+
+  const data = await res.json();
+  conversationId = data._id;
+  document.getElementById("conversationId").innerText = conversationId;
+  system("Conversation ready");
+}
+
+async function sendMessage() {
+  const form = new FormData();
+  form.append("conversationId", conversationId);
+  form.append("receiverId", otherId.value);
+  form.append("content", message.value);
+
+  for (let f of files.files) {
+    form.append("chatMedia", f);
+  }
+
+  const res = await fetch(`${API}/messages`, {
+    method: "POST",
+    headers: { "Authorization": "Bearer " + token.value },
+    body: form
+  });
+
+  const msg = await res.json();
+
+  render("me", msg.content || "[Media]");
+  updateTick(msg._id, "sent");
+
+  // 🔥 THIS IS THE MISSING PIECE
+  socket.emit("send-message", {
+    messageId: msg._id,
+    receiverId: otherId.value
+  });
+
+  message.value = "";
+  files.value = "";
+}
+
+async function fetchMessage(messageId) {
+  const res = await fetch(`${API}/messages/${conversationId}`, {
+    headers: { "Authorization": "Bearer " + token.value }
+  });
+
+  const messages = await res.json();
+  return messages.find(m => m._id === messageId);
+}
+
+/* ---------------- SEEN ---------------- */
+function markSeen() {
+  socket.emit("message-seen", {
+    conversationId,
+    userId: myId.value
+  });
+}
+
+/* ---------------- UI ---------------- */
+const ticks = {};
+
+function render(who, text) {
+  const div = document.createElement("div");
+  div.innerHTML = `<b>${who === "me" ? "Me" : "Other"}:</b> ${text}
+    <span class="tick grey">✔</span>`;
+  chat.appendChild(div);
+  ticks[text] = div.querySelector(".tick");
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function updateTick(_, status) {
+  const last = document.querySelector(".tick:last-child");
+  if (!last) return;
+
+  if (status === "delivered") {
+    last.innerText = "✔✔";
+    last.className = "tick grey";
+  }
+
+  if (status === "seen") {
+    last.innerText = "✔✔";
+    last.className = "tick blue";
+  }
+}
+
+function system(text) {
+  const div = document.createElement("div");
+  div.className = "system";
+  div.innerText = "SYSTEM: " + text;
+  chat.appendChild(div);
+}
+</script>
+
+</body>
+</html>

@@ -8,6 +8,8 @@ const fs = require("fs");
 const connectDB = require("./config/dbConnection");
 const adminRoutes = require("./routes/admin");
 const categoryRoutes = require("./routes/category");
+const http = require("http");
+const { Server } = require("socket.io");
 // require("./functions/scheduler");
 require("./cron/expireMediaRequests");
 
@@ -73,11 +75,22 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/category", categoryRoutes);
 app.use("/api/seller", require("./routes/seller"));
 app.use("/api/buyer", require("./routes/buyer"));
+app.use("/api/chat", require("./routes/chat"));
 
 
+const server = http.createServer(app);
 
-// require("./functions/cornJob");
+const io = new Server(server, {
+  cors: {
+    origin: "*"
+  }
+});
 
-app.listen(port, () => {
+app.set("io", io);
+
+require("./socket")(io);
+
+
+server.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });

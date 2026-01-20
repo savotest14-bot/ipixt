@@ -21,6 +21,8 @@ const path = require("path");
 const UserFollow = require("../models/UserFollow");
 const ItemFavorite = require("../models/ItemFavorite");
 const { Item } = require("../models/item");
+const NotificationSettings = require("../models/NotificationSettings");
+
 
 
 exports.register = async (req, res) => {
@@ -81,7 +83,7 @@ exports.register = async (req, res) => {
       return res.status(200).json({
         message: `OTP sent successfully to ${email || phoneNumber}`,
         userId: existing._id,
-        otp 
+        otp
       });
     }
 
@@ -97,11 +99,14 @@ exports.register = async (req, res) => {
     if (email) {
       await sendMail("send-otp", { "%otp%": otp }, email);
     }
+    await NotificationSettings.create({
+      user: user._id
+    });
 
     return res.status(201).json({
       message: `OTP sent successfully to ${email || phoneNumber}`,
       userId: user._id,
-      otp 
+      otp
     });
   } catch (error) {
     console.error("register-error", error);
@@ -436,7 +441,7 @@ exports.resendOTP = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const { email, phoneNumber, countryCode, password } = req.body;
-  
+
     const query = { isDeleted: false };
 
     if (email) {
@@ -487,7 +492,7 @@ exports.login = async (req, res) => {
       message: "Login successful",
       isKycCompleted: user.isKycCompleted,
       role: user.role,
-      isPasswordSet:user.isPasswordSet,
+      isPasswordSet: user.isPasswordSet,
       token
     });
   } catch (err) {
@@ -767,13 +772,13 @@ exports.updateUserPersonalDetails = async (req, res) => {
     const {
       firstName,
       lastName,
-      dob,             
+      dob,
       businessName,
       businessId,
       currency,
       country,
       kyc,
-      categories        
+      categories
     } = req.body;
 
     const updateData = {};
@@ -856,7 +861,7 @@ exports.changePassword = async (req, res) => {
       });
     }
 
-    const isMatch = await user.matchPassword(oldPassword); 
+    const isMatch = await user.matchPassword(oldPassword);
     if (!isMatch) {
       return res.status(400).json({
         message: "Old password is incorrect"
@@ -923,7 +928,7 @@ exports.toggleFollow = async (req, res) => {
         status: "unfollowed"
       });
     } else {
-        await UserFollow.create({
+      await UserFollow.create({
         follower: currentUserId,
         following: targetUserId
       });
@@ -1264,7 +1269,7 @@ exports.toggleFavorite = async (req, res) => {
   try {
     const { itemId } = req.params;
     const userId = req.user._id;
-  console.log("userId",userId);
+    console.log("userId", userId);
     if (!mongoose.Types.ObjectId.isValid(itemId)) {
       return res.status(400).json({ message: "Invalid item id" });
     }
@@ -1382,27 +1387,58 @@ exports.getMyFavoriteItems = async (req, res) => {
 
 
 exports.getItemByPublicToken = async (req, res) => {
-    try {
-        const item = await Item.findOne({
-            publicToken: req.params.token,
-            isActive: true
-        })
-            .populate("seller", "firstName lastName")
-            .populate("category", "title");
+  try {
+    const item = await Item.findOne({
+      publicToken: req.params.token,
+      isActive: true
+    })
+      .populate("seller", "firstName lastName")
+      .populate("category", "title");
 
-        if (!item) {
-            return res.status(404).json({
-                message: "Item not found or inactive"
-            });
-        }
-
-        res.status(200).json({
-            data: item
-        });
-    } catch (error) {
-        res.status(500).json({
-            message: "Failed to fetch item",
-            error: error.message
-        });
+    if (!item) {
+      return res.status(404).json({
+        message: "Item not found or inactive"
+      });
     }
+
+    res.status(200).json({
+      data: item
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Failed to fetch item",
+      error: error.message
+    });
+  }
+};
+
+
+exports.notificationSettings = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const updates = req.body;
+
+    const settings = await NotificationSettings.findOneAndUpdate(
+      { user: userId },
+      {
+        $set: updates,
+        $setOnInsert: { user: userId }
+      },
+      {
+        new: true,
+        upsert: true
+      }
+    );
+
+    res.status(200).json({
+      message: "Notification settings fetched successfully",
+      data: settings
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      message: "Failed to get/update notification settings",
+      error: error.message
+    });
+  }
 };

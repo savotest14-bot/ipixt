@@ -14,6 +14,7 @@ const UPLOAD_PATHS = Object.freeze({
     mediaDocument: "items/documents",
     profilePic:"profilePics",
     logo: "logo",
+    chatMedia: "chat",
 });
 
 const ensureDir = (dir) => {
