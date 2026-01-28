@@ -56,7 +56,6 @@ exports.logout = async (req, res) => {
     }
 
     const token = authHeader.replace("Bearer ", "").trim();
-    console.log(token);
     if (!token) {
       return res.status(400).send({ message: "Invalid token format" });
     }

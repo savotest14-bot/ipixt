@@ -62,7 +62,7 @@ module.exports = (io) => {
 
           if (allowed) {
             console.log("🔔 Send push notification to:", receiverId);
-            // push / email logic here
+            // push / email logic here  
           }
         }
 

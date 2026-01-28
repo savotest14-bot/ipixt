@@ -17,10 +17,6 @@ const userSchema = new mongoose.Schema(
     password: {
       type: String,
     },
-    isDeleted: {
-      type: Boolean,
-      default: false,
-    },
     country: {
       type: String,
     },
@@ -102,10 +98,11 @@ const userSchema = new mongoose.Schema(
       type: {
         type: String,
         enum: ["Point"],
-        default: "Point",
+        default: undefined,
       },
       coordinates: {
         type: [Number],
+        default: undefined,
       },
     },
 

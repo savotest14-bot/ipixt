@@ -253,7 +253,7 @@ exports.getLatestItemsForBuyer = async (req, res) => {
               cond: {
                 $and: [
                   { $eq: ["$$item.isActive", true] },
-                  { $eq: ["$$item.isPublished", true] },
+                  { $eq: ["$$item.isPublished", false] },
                   { $eq: ["$$item.isDeleted", false] }
                 ]
               }
@@ -266,25 +266,25 @@ exports.getLatestItemsForBuyer = async (req, res) => {
 
       ...(search
         ? [
-            {
-              $addFields: {
-                items: {
-                  $filter: {
-                    input: "$items",
-                    as: "item",
-                    cond: {
-                      $or: [
-                        { $regexMatch: { input: "$$item.title", regex: search, options: "i" } },
-                        { $regexMatch: { input: "$$item.description", regex: search, options: "i" } },
-                        { $regexMatch: { input: { $reduce: { input: "$$item.tags", initialValue: "", in: { $concat: ["$$value", ",", "$$this"] } } }, regex: search, options: "i" } }
-                      ]
-                    }
+          {
+            $addFields: {
+              items: {
+                $filter: {
+                  input: "$items",
+                  as: "item",
+                  cond: {
+                    $or: [
+                      { $regexMatch: { input: "$$item.title", regex: search, options: "i" } },
+                      { $regexMatch: { input: "$$item.description", regex: search, options: "i" } },
+                      { $regexMatch: { input: { $reduce: { input: "$$item.tags", initialValue: "", in: { $concat: ["$$value", ",", "$$this"] } } }, regex: search, options: "i" } }
+                    ]
                   }
                 }
               }
-            },
-            { $match: { "items.0": { $exists: true } } }
-          ]
+            }
+          },
+          { $match: { "items.0": { $exists: true } } }
+        ]
         : []),
 
       { $unwind: "$items" },
@@ -310,7 +310,7 @@ exports.getLatestItemsForBuyer = async (req, res) => {
           title: "$items.title",
           description: "$items.description",
           price: "$items.price",
-          media: { $ifNull: ["$items.media", []] }, 
+          media: { $ifNull: ["$items.media", []] },
           createdAt: "$items.createdAt",
           distance: { $round: ["$distance", 0] },
           category: {
@@ -358,9 +358,6 @@ exports.getLatestItemsForBuyer = async (req, res) => {
     });
   }
 };
-
-
-
 
 
 exports.getItemComments = async (req, res) => {
@@ -889,7 +886,12 @@ exports.requestMedia = async (req, res) => {
     }
 
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    const requestCharge = await calculateCommission(price, "requestPurchaseCommission");
+    const commissionData = await calculateCommission(
+      price,
+      "requestPurchaseCommission"
+    );
+
+    const requestCharge = commissionData.commissionAmount;
 
     const request = await MediaRequest.create({
       buyer: buyerId,
@@ -913,7 +915,10 @@ exports.requestMedia = async (req, res) => {
       seller: sellerId,
       baseAmount: price,
       commissionAmount: requestCharge,
-      commissionConfig: { type, value },
+      commissionConfig: {
+        type: commissionData.type,
+        value: commissionData.value
+      },
       status: "pending"
     });
     return res.status(201).json({

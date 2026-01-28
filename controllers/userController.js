@@ -261,7 +261,7 @@ exports.verifyOTP = async (req, res) => {
     return res.status(200).send({ id: userId, message: "Otp verified successfully" });
 
   } catch (error) {
-    console.log("verify-error", error);
+    // console.log("verify-error", error);
     return res.status(500).send({ message: "Internal Server Error" });
   }
 };
@@ -321,7 +321,7 @@ exports.setPassword = async (req, res) => {
       token
     });
   } catch (error) {
-    console.log("set-password-error", error);
+    // console.log("set-password-error", error);
     return res.status(500).send({ message: "Internal Server Error" });
   }
 };
@@ -1269,7 +1269,6 @@ exports.toggleFavorite = async (req, res) => {
   try {
     const { itemId } = req.params;
     const userId = req.user._id;
-    console.log("userId", userId);
     if (!mongoose.Types.ObjectId.isValid(itemId)) {
       return res.status(400).json({ message: "Invalid item id" });
     }

@@ -2,9 +2,9 @@ const Commission = require("../models/Commission");
 
 /**
  * Calculate commission amount
- * @param {Number} price - base price
+ * @param {Number} price
  * @param {"requestPurchaseCommission" | "directPurchaseCommission"} commissionKey
- * @returns {Number} calculated commission amount
+ * @returns {{ commissionAmount: number, type: string, value: number }}
  */
 const calculateCommission = async (price, commissionKey) => {
   if (!price || price < 0) {
@@ -19,15 +19,21 @@ const calculateCommission = async (price, commissionKey) => {
 
   const { type, value } = commission[commissionKey];
 
-  let amount = 0;
+  let commissionAmount = 0;
 
   if (type === "percentage") {
-    amount = (price * value) / 100;
+    commissionAmount = (price * value) / 100;
   } else if (type === "fixed") {
-    amount = value;
+    commissionAmount = value;
+  } else {
+    throw new Error("Invalid commission type");
   }
 
-  return Number(amount.toFixed(2));
+  return {
+    commissionAmount: Number(commissionAmount.toFixed(2)),
+    type,
+    value
+  };
 };
 
 module.exports = calculateCommission;
