@@ -67,6 +67,21 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    approvalStatus: {
+      type: String,
+      enum: ["none","pending", "approved", "rejected"],
+      default: "none",
+    },
+    sellerRequest: {
+      status: {
+        type: String,
+        enum: ["none", "pending", "approved", "rejected"],
+        default: "none"
+      },
+      requestedAt: Date,
+      reviewedAt: Date,
+      rejectionReason: String
+    },
     followersCount: {
       type: Number,
       default: 0
@@ -118,10 +133,10 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-userSchema.index(
-  { countryCode: 1, phoneNumber: 1 },
-  { unique: true }
-);
+// userSchema.index(
+//   { countryCode: 1, phoneNumber: 1 },
+//   { unique: true }
+// );
 
 userSchema.index({ location: "2dsphere" });
 

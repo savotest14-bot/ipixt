@@ -17,6 +17,10 @@ const {
   verifyResetOtp,
   getAdminProfile,
   updateAdminProfile,
+  reviewSellerRequest,
+  updateApprovalStatus,
+  getPendingSellerApprovals,
+  getPendingBuyerSellerRequests,
 } = require("../controllers/admin");
 const {
   userLogin,
@@ -38,7 +42,7 @@ router.post(
   validate(forgotPasswordValidation),
   forgotPassword
 );
-router.post("/verify-otp",  verifyResetOtp);
+router.post("/verify-otp", verifyResetOtp);
 router.post(
   "/reset-password",
   validate(setAdminPasswordValidation),
@@ -46,7 +50,7 @@ router.post(
 );
 
 router.post("/changePassword", authenticate, validate(changePasswordValidation), changePassword);
-router.get("/getMyProfile", authenticate,  getAdminProfile);
+router.get("/getMyProfile", authenticate, getAdminProfile);
 router.put("/updateAdminProfile", authenticate, upload.single("profilePic"), updateAdminProfile);
 
 //commision
@@ -63,7 +67,11 @@ router.patch("/deleteUser/:userId", authenticate, toggleUserDeleteStatus);
 router.patch("/blockUser/:userId", authenticate, toggleUserStatus);
 router.patch("/updateUser/:userId", authenticate, upload.single("profilePic"), adminUpdateUser);
 router.get("/getItemsBySellerId/:sellerId", authenticate, getItemsBySellerId);
-router.get("/getAllItems", authenticate,  getAllItemsForAdmin);
-router.get("/getItemById/:itemId", authenticate,  getItemByIdForAdmin);
+router.get("/getAllItems", authenticate, getAllItemsForAdmin);
+router.get("/getItemById/:itemId", authenticate, getItemByIdForAdmin);
+router.patch("/approval/:userId", authenticate, updateApprovalStatus);
+router.patch("/seller-request/:userId", authenticate, reviewSellerRequest);
+router.get("/pending-sellers",  getPendingSellerApprovals);
+router.get("/pending-buyer-seller-requests", getPendingBuyerSellerRequests);
 
 module.exports = router;

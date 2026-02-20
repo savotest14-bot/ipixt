@@ -29,6 +29,8 @@ const {
   getItemByPublicToken,
   getSocialSuggestions,
   notificationSettings,
+  switchRole,
+  downloadImage,
 
 } = require("../controllers/userController");
 
@@ -88,5 +90,6 @@ router.get("/getMyFavoriteItems", authenticate, getMyFavoriteItems);
 router.put("/updateLocation", authenticate, upsertUserAddress);
 router.get("/commission", authenticate, getCommissionForUser);
 router.patch("/notifications/settings", authenticate, notificationSettings);
-
+router.post("/switch-role", authenticate, switchRole);
+router.get("/download/original/:folder/:filename", authenticate,  downloadImage);
 module.exports = router;

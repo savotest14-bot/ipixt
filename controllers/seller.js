@@ -82,10 +82,21 @@ exports.createItemWithQr = async (req, res) => {
         if (Array.isArray(category)) {
             categories = category;
         } else if (typeof category === "string") {
-            categories = category
-                .split(",")
-                .map(id => id.trim())
-                .filter(Boolean);
+            try {
+                // Try parsing as JSON first
+                const parsed = JSON.parse(category);
+                if (Array.isArray(parsed)) {
+                    categories = parsed;
+                } else {
+                    categories = [category];
+                }
+            } catch (err) {
+                // Fallback: comma separated string
+                categories = category
+                    .split(",")
+                    .map(id => id.trim())
+                    .filter(Boolean);
+            }
         }
 
         if (!categories.length) {
@@ -258,162 +269,162 @@ exports.getItemById = async (req, res) => {
 };
 
 exports.updateItem = async (req, res) => {
-  try {
-    const { itemId } = req.params;
+    try {
+        const { itemId } = req.params;
 
-    const item = await Item.findOne({
-      _id: itemId,
-      seller: req.user._id
-    });
-
-    if (!item) {
-      return res.status(404).json({
-        message: "Item not found or unauthorized"
-      });
-    }
-
-    const {
-      title,
-      description,
-      price,
-      currency,
-      format,
-      tags,
-      category,
-      isPublished,
-      deleteMedia 
-    } = req.body;
-
-    if (format && !["physical", "digital", "service"].includes(format)) {
-      return res.status(400).json({ message: "Invalid format" });
-    }
-
-    if (tags !== undefined) {
-      const formattedTags = Array.isArray(tags)
-        ? tags
-        : tags.split(",");
-
-      item.tags = formattedTags.map(t => t.trim().toLowerCase());
-    }
-
-    if (category !== undefined) {
-      const categories = Array.isArray(category)
-        ? category
-        : category.split(",").map(id => id.trim()).filter(Boolean);
-
-      if (!categories.length) {
-        return res.status(400).json({
-          message: "At least one category is required"
+        const item = await Item.findOne({
+            _id: itemId,
+            seller: req.user._id
         });
-      }
 
-      const invalidIds = categories.filter(
-        id => !mongoose.Types.ObjectId.isValid(id)
-      );
+        if (!item) {
+            return res.status(404).json({
+                message: "Item not found or unauthorized"
+            });
+        }
 
-      if (invalidIds.length) {
-        return res.status(400).json({
-          message: "Invalid category id(s)",
-          invalidIds
+        const {
+            title,
+            description,
+            price,
+            currency,
+            format,
+            tags,
+            category,
+            isPublished,
+            deleteMedia
+        } = req.body;
+
+        if (format && !["physical", "digital", "service"].includes(format)) {
+            return res.status(400).json({ message: "Invalid format" });
+        }
+
+        if (tags !== undefined) {
+            const formattedTags = Array.isArray(tags)
+                ? tags
+                : tags.split(",");
+
+            item.tags = formattedTags.map(t => t.trim().toLowerCase());
+        }
+
+        if (category !== undefined) {
+            const categories = Array.isArray(category)
+                ? category
+                : category.split(",").map(id => id.trim()).filter(Boolean);
+
+            if (!categories.length) {
+                return res.status(400).json({
+                    message: "At least one category is required"
+                });
+            }
+
+            const invalidIds = categories.filter(
+                id => !mongoose.Types.ObjectId.isValid(id)
+            );
+
+            if (invalidIds.length) {
+                return res.status(400).json({
+                    message: "Invalid category id(s)",
+                    invalidIds
+                });
+            }
+
+            item.category = categories;
+        }
+
+        if (title !== undefined) item.title = title;
+        if (description !== undefined) item.description = description;
+        if (price !== undefined) item.price = price;
+        if (currency !== undefined) item.currency = currency;
+        if (format !== undefined) item.format = format;
+        if (isPublished !== undefined) item.isPublished = isPublished;
+
+        if (deleteMedia) {
+            const mediaIds = Array.isArray(deleteMedia)
+                ? deleteMedia
+                : [deleteMedia];
+
+            const validMediaIds = mediaIds.filter(id =>
+                mongoose.Types.ObjectId.isValid(id)
+            );
+
+            const mediaToDelete = item.media.filter(m =>
+                validMediaIds.includes(m._id.toString())
+            );
+
+            mediaToDelete.forEach(m => {
+                const filePath = path.join(
+                    __dirname,
+                    "..",
+                    "uploads",
+                    m.filename
+                );
+                deleteFileSafe(filePath);
+            });
+
+            item.media = item.media.filter(
+                m => !validMediaIds.includes(m._id.toString())
+            );
+        }
+
+        if (req.files && Object.keys(req.files).length > 0) {
+            const newMedia = [];
+
+            if (req.files.mediaPhoto) {
+                req.files.mediaPhoto.forEach(file => {
+                    newMedia.push({
+                        type: "image",
+                        filename: file.filename
+                    });
+                });
+            }
+
+            if (req.files.mediaVideo) {
+                req.files.mediaVideo.forEach(file => {
+                    newMedia.push({
+                        type: "video",
+                        filename: file.filename
+                    });
+                });
+            }
+
+            if (req.files.mediaAudio) {
+                req.files.mediaAudio.forEach(file => {
+                    newMedia.push({
+                        type: "audio",
+                        filename: file.filename
+                    });
+                });
+            }
+
+            if (req.files.mediaDocument) {
+                req.files.mediaDocument.forEach(file => {
+                    newMedia.push({
+                        type: "document",
+                        filename: file.filename
+                    });
+                });
+            }
+
+            item.media.push(...newMedia);
+        }
+
+        await item.save();
+
+        res.status(200).json({
+            message: "Item updated successfully",
+            data: {
+                itemId: item._id,
+                mediaCount: item.media.length
+            }
         });
-      }
 
-      item.category = categories;
+    } catch (error) {
+        res.status(500).json({
+            message: "Failed to update item",
+            error: error.message
+        });
     }
-
-    if (title !== undefined) item.title = title;
-    if (description !== undefined) item.description = description;
-    if (price !== undefined) item.price = price;
-    if (currency !== undefined) item.currency = currency;
-    if (format !== undefined) item.format = format;
-    if (isPublished !== undefined) item.isPublished = isPublished;
-
-    if (deleteMedia) {
-      const mediaIds = Array.isArray(deleteMedia)
-        ? deleteMedia
-        : [deleteMedia];
-
-      const validMediaIds = mediaIds.filter(id =>
-        mongoose.Types.ObjectId.isValid(id)
-      );
-
-      const mediaToDelete = item.media.filter(m =>
-        validMediaIds.includes(m._id.toString())
-      );
-
-      mediaToDelete.forEach(m => {
-        const filePath = path.join(
-          __dirname,
-          "..",
-          "uploads",
-          m.filename
-        );
-        deleteFileSafe(filePath);
-      });
-
-      item.media = item.media.filter(
-        m => !validMediaIds.includes(m._id.toString())
-      );
-    }
-
-    if (req.files && Object.keys(req.files).length > 0) {
-      const newMedia = [];
-
-      if (req.files.mediaPhoto) {
-        req.files.mediaPhoto.forEach(file => {
-          newMedia.push({
-            type: "image",
-            filename: file.filename
-          });
-        });
-      }
-
-      if (req.files.mediaVideo) {
-        req.files.mediaVideo.forEach(file => {
-          newMedia.push({
-            type: "video",
-            filename: file.filename
-          });
-        });
-      }
-
-      if (req.files.mediaAudio) {
-        req.files.mediaAudio.forEach(file => {
-          newMedia.push({
-            type: "audio",
-            filename: file.filename
-          });
-        });
-      }
-
-      if (req.files.mediaDocument) {
-        req.files.mediaDocument.forEach(file => {
-          newMedia.push({
-            type: "document",
-            filename: file.filename
-          });
-        });
-      }
-
-      item.media.push(...newMedia);
-    }
-
-    await item.save();
-
-    res.status(200).json({
-      message: "Item updated successfully",
-      data: {
-        itemId: item._id,
-        mediaCount: item.media.length
-      }
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      message: "Failed to update item",
-      error: error.message
-    });
-  }
 };
 
 

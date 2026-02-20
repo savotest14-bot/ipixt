@@ -847,3 +847,165 @@ exports.getItemByIdForAdmin = async (req, res) => {
     });
   }
 };
+
+exports.updateApprovalStatus = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { status } = req.body;
+
+    if (!["approved", "rejected"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Status must be approved or rejected",
+      });
+    }
+
+    const updatedUser = await User.findOneAndUpdate(
+      {
+        _id: userId,
+        approvalStatus: "pending", 
+      },
+      {
+        $set: { approvalStatus: status },
+      },
+      { new: true }
+    );
+
+    if (!updatedUser) {
+      return res.status(400).json({
+        success: false,
+        message: "No pending approval request found",
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Approval status updated to ${status}`,
+      approvalStatus: updatedUser.approvalStatus,
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
+exports.reviewSellerRequest = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { action, reason } = req.body; 
+
+    if (!["approve", "reject"].includes(action)) {
+      return res.status(400).json({
+        success: false,
+        message: "Action must be approve or reject",
+      });
+    }
+
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    if (!user.sellerRequest || user.sellerRequest.status !== "pending") {
+      return res.status(400).json({
+        success: false,
+        message: "No pending seller request found",
+      });
+    }
+
+    if (action === "approve") {
+      user.role = user.role === "buyer" ? "both" : "buyer";
+      user.sellerRequest.status = "approved";
+      user.sellerRequest.reviewedAt = new Date();
+      user.approvalStatus = "approved";
+    }
+
+    if (action === "reject") {
+      if (!reason) {
+        return res.status(400).json({
+          success: false,
+          message: "Rejection reason is required",
+        });
+      }
+
+      user.sellerRequest.status = "rejected";
+      user.sellerRequest.rejectionReason = reason;
+      user.sellerRequest.reviewedAt = new Date();
+      user.approvalStatus = "rejected";
+    }
+
+    await user.save();
+
+    res.json({
+      success: true,
+      message: `Seller request ${action}d successfully`,
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
+exports.getPendingSellerApprovals = async (req, res) => {
+  try {
+
+    const users = await User.find({
+      role: "seller",
+      approvalStatus: "pending",
+      "sellerRequest.status": "none"
+    })
+    .select("-password -otp -tokens")
+    .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      count: users.length,
+      data: users
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+};
+
+exports.getPendingBuyerSellerRequests = async (req, res) => {
+  try {
+
+    const users = await User.find({
+      role: "buyer",
+      approvalStatus: "pending",
+      "sellerRequest.status": "pending"
+    })
+    .select("-password -otp -tokens")
+    .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      count: users.length,
+      data: users
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+};

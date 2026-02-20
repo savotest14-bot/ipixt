@@ -614,6 +614,10 @@ exports.updateUserCategoriesAndRole = async (req, res) => {
       updateData.$set = { role };
     }
 
+    if(role === "seller"){
+      updateData.$set = { ...updateData.$set, approvalStatus: "pending" };
+    }
+
     await User.findByIdAndUpdate(
       req.user._id,
       updateData,
@@ -1440,4 +1444,86 @@ exports.notificationSettings = async (req, res) => {
       error: error.message
     });
   }
+};
+
+
+exports.switchRole = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    if (!user.role) {
+      user.role = "buyer";
+      await user.save();
+
+      return res.json({
+        success: true,
+        message: "Role set to buyer",
+        role: user.role,
+      });
+    }
+    if (user.role === "buyer") {
+      
+      if (user.sellerRequest?.status === "pending") {
+        return res.status(400).json({
+          message: "Seller request already pending approval",
+        });
+      }
+
+      user.sellerRequest = {
+        status: "pending",
+        requestedAt: new Date(),
+      };
+
+      user.approvalStatus = "pending";
+
+      await user.save();
+
+      return res.json({
+        success: true,
+        message: "Seller request sent to admin for approval",
+        status: "pending",
+      });
+    }
+
+    if (user.role === "seller") {
+      user.role = "both";
+      await user.save();
+
+      return res.json({
+        success: true,
+        message: "You are now both buyer and seller",
+        role: user.role,
+      });
+    }
+
+    if (user.role === "both") {
+      return res.json({
+        success: true,
+        message: "You already have both roles",
+        role: user.role,
+      });
+    }
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+
+const BASE_UPLOAD_PATH = path.join(__dirname, "..", "uploads");
+exports.downloadImage = async (req, res) => {
+    const { folder, filename } = req.params;
+
+    const filePath = path.join(
+        BASE_UPLOAD_PATH,
+        "originals",
+        folder,
+        filename
+    );
+
+    res.download(filePath);
 };
