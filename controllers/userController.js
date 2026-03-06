@@ -588,11 +588,11 @@ exports.savePersonalAndKycDetails = async (req, res) => {
 
 exports.updateUserCategoriesAndRole = async (req, res) => {
   try {
-    const { categories, role } = req.body;
+    const { category, subCategories, role } = req.body;
 
-    if (categories && !Array.isArray(categories)) {
+    if (subCategories && !Array.isArray(subCategories)) {
       return res.status(400).json({
-        message: "Categories must be an array"
+        message: "subCategories must be an array"
       });
     }
 
@@ -604,29 +604,36 @@ exports.updateUserCategoriesAndRole = async (req, res) => {
 
     const updateData = {};
 
-    if (categories && categories.length) {
-      updateData.$addToSet = {
-        categories: { $each: categories }
-      };
+
+    if (category) {
+      updateData.category = category;
     }
 
+    // multiple subcategories
+    if (subCategories && subCategories.length) {
+      updateData.subCategories = subCategories;
+    }
+
+    // role update
     if (role) {
-      updateData.$set = { role };
+      updateData.role = role;
+
+      if (role === "seller") {
+        updateData.approvalStatus = "pending";
+      }
     }
 
-    if(role === "seller"){
-      updateData.$set = { ...updateData.$set, approvalStatus: "pending" };
-    }
-
-    await User.findByIdAndUpdate(
+    const user = await User.findByIdAndUpdate(
       req.user._id,
-      updateData,
+      { $set: updateData },
       { new: true }
     );
 
     res.status(200).json({
-      message: "Categories and role updated successfully"
+      message: "Category, subcategories and role updated successfully",
+      data: user
     });
+
   } catch (error) {
     res.status(500).json({
       message: "Failed to update data",
@@ -703,7 +710,8 @@ exports.getMyProfile = async (req, res) => {
   try {
     const user = await User.findById(userId)
       .select("-password -tokens")
-      .populate("categories", "title");
+      .populate("subCategories", "title")
+      .populate("category", "title");
 
     if (!user) {
       return res.status(404).json({
@@ -771,6 +779,71 @@ exports.updateProfilePic = async (req, res) => {
   }
 };
 
+// exports.updateUserPersonalDetails = async (req, res) => {
+//   try {
+//     const {
+//       firstName,
+//       lastName,
+//       dob,
+//       businessName,
+//       businessId,
+//       currency,
+//       country,
+//       kyc,
+//       categories
+//     } = req.body;
+
+//     const updateData = {};
+
+//     if (firstName) updateData.firstName = firstName;
+//     if (lastName) updateData.lastName = lastName;
+//     if (businessName) updateData.businessName = businessName;
+//     if (businessId) updateData.businessId = businessId;
+//     if (currency) updateData.currency = currency;
+//     if (country) updateData.country = country;
+
+//     if (dob) {
+//       const [day, month, year] = dob.split("/");
+//       updateData.dob = new Date(`${year}-${month}-${day}`);
+//     }
+
+//     if (kyc) {
+//       updateData.kyc = kyc;
+//       updateData.isKycCompleted = true;
+//     }
+
+//     if (categories && Array.isArray(categories)) {
+//       updateData.categories = categories;
+//     }
+
+//     const updatedUser = await User.findByIdAndUpdate(
+//       req.user._id,
+//       { $set: updateData },
+//       {
+//         new: true,
+//         runValidators: true
+//       }
+//     );
+
+//     if (!updatedUser) {
+//       return res.status(404).json({
+//         message: "User not found"
+//       });
+//     }
+
+//     res.status(200).json({
+//       message: "User details updated successfully",
+//       data: updatedUser
+//     });
+//   } catch (error) {
+//     res.status(500).json({
+//       message: "Failed to update user details",
+//       error: error.message
+//     });
+//   }
+// };
+
+
 exports.updateUserPersonalDetails = async (req, res) => {
   try {
     const {
@@ -782,7 +855,8 @@ exports.updateUserPersonalDetails = async (req, res) => {
       currency,
       country,
       kyc,
-      categories
+      category,
+      subCategories
     } = req.body;
 
     const updateData = {};
@@ -794,18 +868,52 @@ exports.updateUserPersonalDetails = async (req, res) => {
     if (currency) updateData.currency = currency;
     if (country) updateData.country = country;
 
+    // DOB conversion
     if (dob) {
       const [day, month, year] = dob.split("/");
       updateData.dob = new Date(`${year}-${month}-${day}`);
     }
 
+    // KYC
     if (kyc) {
       updateData.kyc = kyc;
       updateData.isKycCompleted = true;
     }
 
-    if (categories && Array.isArray(categories)) {
-      updateData.categories = categories;
+    // ---------- CATEGORY ----------
+    if (category) {
+      if (!mongoose.Types.ObjectId.isValid(category)) {
+        return res.status(400).json({
+          message: "Invalid category id"
+        });
+      }
+
+      updateData.category = category;
+    }
+
+    // ---------- SUBCATEGORIES ----------
+    if (subCategories !== undefined) {
+
+      const parsedSubCategories = Array.isArray(subCategories)
+        ? subCategories
+        : subCategories.split(",");
+
+      const cleaned = parsedSubCategories
+        .map(id => id.trim())
+        .filter(Boolean);
+
+      const invalidIds = cleaned.filter(
+        id => !mongoose.Types.ObjectId.isValid(id)
+      );
+
+      if (invalidIds.length) {
+        return res.status(400).json({
+          message: "Invalid subCategory id(s)",
+          invalidIds
+        });
+      }
+
+      updateData.subCategories = cleaned;
     }
 
     const updatedUser = await User.findByIdAndUpdate(
@@ -827,6 +935,7 @@ exports.updateUserPersonalDetails = async (req, res) => {
       message: "User details updated successfully",
       data: updatedUser
     });
+
   } catch (error) {
     res.status(500).json({
       message: "Failed to update user details",
@@ -1396,6 +1505,7 @@ exports.getItemByPublicToken = async (req, res) => {
       isActive: true
     })
       .populate("seller", "firstName lastName")
+      .populate("subCategories", "title")
       .populate("category", "title");
 
     if (!item) {
@@ -1465,7 +1575,7 @@ exports.switchRole = async (req, res) => {
       });
     }
     if (user.role === "buyer") {
-      
+
       if (user.sellerRequest?.status === "pending") {
         return res.status(400).json({
           message: "Seller request already pending approval",
@@ -1516,14 +1626,14 @@ exports.switchRole = async (req, res) => {
 
 const BASE_UPLOAD_PATH = path.join(__dirname, "..", "uploads");
 exports.downloadImage = async (req, res) => {
-    const { folder, filename } = req.params;
+  const { folder, filename } = req.params;
 
-    const filePath = path.join(
-        BASE_UPLOAD_PATH,
-        "originals",
-        folder,
-        filename
-    );
+  const filePath = path.join(
+    BASE_UPLOAD_PATH,
+    "originals",
+    folder,
+    filename
+  );
 
-    res.download(filePath);
+  res.download(filePath);
 };

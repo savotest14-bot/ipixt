@@ -8,6 +8,15 @@ const AdminSchema = new mongoose.Schema({
   email: { type: String },
   password: { type: String },
   phone: { type: String },
+  role: {
+    type: String,
+    enum: ["admin", "subadmin"],
+    default: "admin"
+  },
+  permissions: {
+    type: [String],
+    default: []
+  },
   facebookLink: { type: String },
   instagramLink: { type: String },
   twitterLink: { type: String },

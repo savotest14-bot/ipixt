@@ -52,10 +52,16 @@ const userSchema = new mongoose.Schema(
     otpExpiry: {
       type: Date,
     },
-    categories: [
+    category: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
+      default: null
+    },
+
+    subCategories: [
       {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "Category",
+        ref: "SubCategory"
       }
     ],
     isPasswordSet: {
@@ -69,7 +75,7 @@ const userSchema = new mongoose.Schema(
     },
     approvalStatus: {
       type: String,
-      enum: ["none","pending", "approved", "rejected"],
+      enum: ["none", "pending", "approved", "rejected"],
       default: "none",
     },
     sellerRequest: {
@@ -133,10 +139,6 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-// userSchema.index(
-//   { countryCode: 1, phoneNumber: 1 },
-//   { unique: true }
-// );
 
 userSchema.index({ location: "2dsphere" });
 

@@ -17,109 +17,196 @@ exports.getItemsForBuyer = async (req, res) => {
     const search = req.query.search?.trim();
 
     const buyer = await User.findById(userId)
-      .select("categories")
+      .select("category subCategories")
       .lean();
 
-    if (!buyer || !buyer.categories?.length) {
+    if (!buyer || !buyer.category) {
       return res.status(200).json({
-        message: "No categories selected by buyer",
+        message: "No category selected by buyer",
         pagination: { total: 0, page, limit, totalPages: 0 },
         data: []
       });
     }
 
-    const filter = {
-      category: { $in: buyer.categories },
+    const matchFilter = {
+      category: buyer.category,
       isActive: true,
       isDeleted: false,
       isPublished: true,
       seller: { $ne: userId }
     };
 
+    if (buyer.subCategories?.length) {
+      matchFilter.subCategories = { $in: buyer.subCategories };
+    }
+
     if (search) {
-      filter.$or = [
+      matchFilter.$or = [
         { title: { $regex: search, $options: "i" } },
         { description: { $regex: search, $options: "i" } },
         { tags: { $regex: search, $options: "i" } }
       ];
     }
 
-    const [items, total] = await Promise.all([
-      Item.find(filter)
-        .select("-purchasesCount")
-        .populate("category", "title")
-        .populate("seller", "firstName lastName profilePic")
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
+    const items = await Item.aggregate([
+      { $match: matchFilter },
 
-      Item.countDocuments(filter)
-    ]);
-
-    const itemIds = items.map(i => i._id);
-
-    const [likes, favorites, comments] = await Promise.all([
-      ItemLike.find({ user: userId, item: { $in: itemIds } })
-        .select("item")
-        .lean(),
-
-      ItemFavorite.find({ user: userId, item: { $in: itemIds } })
-        .select("item")
-        .lean(),
-
-      ItemComment.find({ user: userId, item: { $in: itemIds } })
-        .select("item")
-        .lean()
-    ]);
-
-    const likedUsersAgg = await ItemLike.aggregate([
-      { $match: { item: { $in: itemIds } } },
       { $sort: { createdAt: -1 } },
+
+      { $skip: skip },
+      { $limit: limit },
+
       {
-        $group: {
-          _id: "$item",
-          users: { $push: "$user" }
+        $lookup: {
+          from: "users",
+          localField: "seller",
+          foreignField: "_id",
+          pipeline: [
+            {
+              $project: {
+                firstName: 1,
+                lastName: 1,
+                profilePic: 1
+              }
+            }
+          ],
+          as: "seller"
         }
       },
+      { $unwind: "$seller" },
+
+      {
+        $lookup: {
+          from: "categories",
+          localField: "category",
+          foreignField: "_id",
+          as: "category"
+        }
+      },
+      { $unwind: "$category" },
+
+      {
+        $lookup: {
+          from: "subcategories",
+          localField: "subCategories",
+          foreignField: "_id",
+          as: "subCategories"
+        }
+      },
+
+      // last 3 liked users
+      {
+        $lookup: {
+          from: "itemlikes",
+          let: { itemId: "$_id" },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$item", "$$itemId"] } } },
+            { $sort: { createdAt: -1 } },
+            { $limit: 3 },
+            {
+              $lookup: {
+                from: "users",
+                localField: "user",
+                foreignField: "_id",
+                pipeline: [
+                  {
+                    $project: {
+                      firstName: 1,
+                      lastName: 1,
+                      profilePic: 1
+                    }
+                  }
+                ],
+                as: "user"
+              }
+            },
+            { $unwind: "$user" },
+            { $replaceRoot: { newRoot: "$user" } }
+          ],
+          as: "likedUsers"
+        }
+      },
+
+      // buyer liked
+      {
+        $lookup: {
+          from: "itemlikes",
+          let: { itemId: "$_id" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$item", "$$itemId"] },
+                    { $eq: ["$user", userId] }
+                  ]
+                }
+              }
+            }
+          ],
+          as: "buyerLike"
+        }
+      },
+
+      {
+        $lookup: {
+          from: "itemfavorites",
+          let: { itemId: "$_id" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$item", "$$itemId"] },
+                    { $eq: ["$user", userId] }
+                  ]
+                }
+              }
+            }
+          ],
+          as: "buyerFavorite"
+        }
+      },
+
+      {
+        $lookup: {
+          from: "itemcomments",
+          let: { itemId: "$_id" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$item", "$$itemId"] },
+                    { $eq: ["$user", userId] }
+                  ]
+                }
+              }
+            }
+          ],
+          as: "buyerComment"
+        }
+      },
+
+      {
+        $addFields: {
+          isLiked: { $gt: [{ $size: "$buyerLike" }, 0] },
+          isFavorited: { $gt: [{ $size: "$buyerFavorite" }, 0] },
+          hasCommented: { $gt: [{ $size: "$buyerComment" }, 0] }
+        }
+      },
+
       {
         $project: {
-          users: { $slice: ["$users", 3] }
+          buyerLike: 0,
+          buyerFavorite: 0,
+          buyerComment: 0,
+          purchasesCount: 0
         }
       }
     ]);
 
-    const likedUserIds = [
-      ...new Set(likedUsersAgg.flatMap(l => l.users))
-    ];
-
-    const usersMap = {};
-    const users = await User.find(
-      { _id: { $in: likedUserIds } },
-      "firstName lastName profilePic"
-    ).lean();
-
-    users.forEach(u => {
-      usersMap[u._id.toString()] = u;
-    });
-
-    const likedUsersMap = {};
-    likedUsersAgg.forEach(l => {
-      likedUsersMap[l._id.toString()] =
-        l.users.map(uid => usersMap[uid.toString()]);
-    });
-
-    const likedSet = new Set(likes.map(l => l.item.toString()));
-    const favoriteSet = new Set(favorites.map(f => f.item.toString()));
-    const commentedSet = new Set(comments.map(c => c.item.toString()));
-
-    const finalItems = items.map(item => ({
-      ...item,
-      isLiked: likedSet.has(item._id.toString()),
-      isFavorited: favoriteSet.has(item._id.toString()),
-      hasCommented: commentedSet.has(item._id.toString()),
-      likedUsers: likedUsersMap[item._id.toString()] || []
-    }));
+    const total = await Item.countDocuments(matchFilter);
 
     res.status(200).json({
       message: "Items fetched successfully",
@@ -129,7 +216,7 @@ exports.getItemsForBuyer = async (req, res) => {
         limit,
         totalPages: Math.ceil(total / limit)
       },
-      data: finalItems
+      data: items
     });
 
   } catch (error) {
@@ -139,65 +226,6 @@ exports.getItemsForBuyer = async (req, res) => {
     });
   }
 };
-
-
-// exports.getLatestItemsForBuyer = async (req, res) => {
-//   try {
-//     const userId = req.user._id;
-//     const buyer = await User.findById(userId)
-//       .select("address")
-//       .lean();
-
-//     const page = parseInt(req.query.page) || 1;
-//     const limit = parseInt(req.query.limit) || 10;
-//     const skip = (page - 1) * limit;
-//     const search = req.query.search?.trim();
-
-//     const filter = {
-//       isActive: true,
-//       isPublished: false,
-//       isDeleted: false,
-//       seller: { $ne: userId }
-//     };
-
-//     if (search) {
-//       filter.$or = [
-//         { title: { $regex: search, $options: "i" } },
-//         { description: { $regex: search, $options: "i" } },
-//         { tags: { $regex: search, $options: "i" } }
-//       ];
-//     }
-
-//     const [items, total] = await Promise.all([
-//       Item.find(filter)
-//         .populate("category", "title")
-//         .populate("seller", "firstName lastName profilePic")
-//         .sort({ createdAt: -1 })
-//         .skip(skip)
-//         .limit(limit),
-
-//       Item.countDocuments(filter)
-//     ]);
-
-//     res.status(200).json({
-//       message: "Latest items fetched successfully",
-//       pagination: {
-//         total,
-//         page,
-//         limit,
-//         totalPages: Math.ceil(total / limit)
-//       },
-//       data: items
-//     });
-
-//   } catch (error) {
-//     res.status(500).json({
-//       message: "Failed to fetch latest items",
-//       error: error.message
-//     });
-//   }
-// };
-
 
 exports.getLatestItemsForBuyer = async (req, res) => {
   try {
@@ -223,11 +251,14 @@ exports.getLatestItemsForBuyer = async (req, res) => {
         $geoNear: {
           near: {
             type: "Point",
-            coordinates: [buyer.address.longitude, buyer.address.latitude]
+            coordinates: [
+              buyer.address.longitude,
+              buyer.address.latitude
+            ]
           },
           distanceField: "distance",
           spherical: true,
-          maxDistance: 50 * 1000, // 50 km
+          maxDistance: 50 * 1000,
           query: {
             isDeleted: false,
             _id: { $ne: userId }
@@ -245,62 +276,50 @@ exports.getLatestItemsForBuyer = async (req, res) => {
       },
 
       {
-        $addFields: {
-          items: {
-            $filter: {
-              input: "$items",
-              as: "item",
-              cond: {
-                $and: [
-                  { $eq: ["$$item.isActive", true] },
-                  { $eq: ["$$item.isPublished", false] },
-                  { $eq: ["$$item.isDeleted", false] }
-                ]
-              }
-            }
-          }
+        $unwind: "$items"
+      },
+
+      {
+        $match: {
+          "items.isActive": true,
+          "items.isPublished": true,
+          "items.isDeleted": false
         }
       },
 
-      { $match: { "items.0": { $exists: true } } },
-
       ...(search
-        ? [
-          {
-            $addFields: {
-              items: {
-                $filter: {
-                  input: "$items",
-                  as: "item",
-                  cond: {
-                    $or: [
-                      { $regexMatch: { input: "$$item.title", regex: search, options: "i" } },
-                      { $regexMatch: { input: "$$item.description", regex: search, options: "i" } },
-                      { $regexMatch: { input: { $reduce: { input: "$$item.tags", initialValue: "", in: { $concat: ["$$value", ",", "$$this"] } } }, regex: search, options: "i" } }
-                    ]
-                  }
-                }
-              }
-            }
-          },
-          { $match: { "items.0": { $exists: true } } }
-        ]
+        ? [{
+          $match: {
+            $or: [
+              { "items.title": { $regex: search, $options: "i" } },
+              { "items.description": { $regex: search, $options: "i" } },
+              { "items.tags": { $regex: search, $options: "i" } }
+            ]
+          }
+        }]
         : []),
-
-      { $unwind: "$items" },
 
       {
         $lookup: {
           from: "categories",
           localField: "items.category",
           foreignField: "_id",
-          as: "categories"
+          as: "category"
+        }
+      },
+
+      {
+        $lookup: {
+          from: "subcategories",
+          localField: "items.subCategories",
+          foreignField: "_id",
+          as: "subCategories"
         }
       },
 
       {
         $addFields: {
-          category: { $arrayElemAt: ["$categories", 0] }
+          category: { $arrayElemAt: ["$category", 0] }
         }
       },
 
@@ -313,10 +332,23 @@ exports.getLatestItemsForBuyer = async (req, res) => {
           media: { $ifNull: ["$items.media", []] },
           createdAt: "$items.createdAt",
           distance: { $round: ["$distance", 0] },
+
           category: {
             _id: "$category._id",
             title: "$category.title"
           },
+
+          subCategories: {
+            $map: {
+              input: "$subCategories",
+              as: "sub",
+              in: {
+                _id: "$$sub._id",
+                title: "$$sub.title"
+              }
+            }
+          },
+
           seller: {
             _id: "$_id",
             firstName: "$firstName",
@@ -326,7 +358,12 @@ exports.getLatestItemsForBuyer = async (req, res) => {
         }
       },
 
-      { $sort: { distance: 1, createdAt: -1 } },
+      {
+        $sort: {
+          distance: 1,
+          createdAt: -1
+        }
+      },
 
       {
         $facet: {
@@ -350,15 +387,16 @@ exports.getLatestItemsForBuyer = async (req, res) => {
       },
       data: result[0]?.data || []
     });
+
   } catch (error) {
     console.error("getLatestItemsForBuyer error:", error);
+
     return res.status(500).json({
       message: "Failed to fetch latest items",
       error: error.message
     });
   }
 };
-
 
 exports.getItemComments = async (req, res) => {
   try {
@@ -438,6 +476,7 @@ exports.getItemById = async (req, res) => {
       isDeleted: false
     })
       .populate("category", "title")
+       .populate("subCategories", "title")
       .populate("seller", "firstName lastName profilePic")
       .lean();
 
@@ -846,10 +885,11 @@ exports.requestMedia = async (req, res) => {
       title,
       price,
       contentType,
-      categories,
+      category,
+      subCategories,
       locationType,
       scheduledAt,
-      description,
+      description
     } = req.body;
 
     if (
@@ -857,23 +897,48 @@ exports.requestMedia = async (req, res) => {
       !title ||
       price === undefined ||
       !contentType ||
-      !categories?.length ||
+      !category ||
       !scheduledAt
     ) {
       return res.status(400).json({
-        message: "All required fields must be provided",
+        message: "All required fields must be provided"
       });
     }
 
     if (buyerId.toString() === sellerId.toString()) {
       return res.status(403).json({
-        message: "You cannot request media from yourself",
+        message: "You cannot request media from yourself"
       });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(category)) {
+      return res.status(400).json({
+        message: "Invalid category id"
+      });
+    }
+
+    if (subCategories && !Array.isArray(subCategories)) {
+      return res.status(400).json({
+        message: "subCategories must be an array"
+      });
+    }
+
+    if (subCategories?.length) {
+      const invalidIds = subCategories.filter(
+        id => !mongoose.Types.ObjectId.isValid(id)
+      );
+
+      if (invalidIds.length) {
+        return res.status(400).json({
+          message: "Invalid subCategory id(s)",
+          invalidIds
+        });
+      }
     }
 
     if (new Date(scheduledAt) < new Date()) {
       return res.status(400).json({
-        message: "Scheduled date must be in the future",
+        message: "Scheduled date must be in the future"
       });
     }
 
@@ -881,11 +946,12 @@ exports.requestMedia = async (req, res) => {
 
     if (!seller || seller.isDeleted) {
       return res.status(404).json({
-        message: "Seller not found",
+        message: "Seller not found"
       });
     }
 
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
     const commissionData = await calculateCommission(
       price,
       "requestPurchaseCommission"
@@ -899,7 +965,8 @@ exports.requestMedia = async (req, res) => {
       title,
       price,
       contentType,
-      categories,
+      category,
+      subCategories,
       locationType,
       requestCharge,
       scheduledAt,
@@ -907,6 +974,7 @@ exports.requestMedia = async (req, res) => {
       expiresAt,
       isPaid: false
     });
+
     await CommissionTransaction.create({
       commissionType: "request_purchase",
       commissionSource: "media_request",
@@ -921,15 +989,18 @@ exports.requestMedia = async (req, res) => {
       },
       status: "pending"
     });
+
     return res.status(201).json({
       message: "Media request sent successfully",
-      data: request,
+      data: request
     });
+
   } catch (error) {
     console.error("request-media-error:", error);
+
     return res.status(500).json({
       message: "Failed to request media",
-      error: error.message,
+      error: error.message
     });
   }
 };
@@ -958,7 +1029,8 @@ exports.getMyMediaRequests = async (req, res) => {
     const [requests, total] = await Promise.all([
       MediaRequest.find(filter)
         .populate("seller", "firstName lastName profilePic")
-        .populate("categories", "title")
+         .populate("subCategories", "title")
+        .populate("category", "title")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)

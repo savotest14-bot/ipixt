@@ -1,5 +1,54 @@
 const mongoose = require("mongoose");
 
+const mediaSchema = new mongoose.Schema({
+  type: {
+    type: String,
+    enum: ["image", "video", "audio", "document"],
+    required: true
+  },
+
+  filename: {
+    type: String,
+    required: true
+  },
+
+  fileSize: Number,
+
+  mimeType: String,
+
+  metadata: {
+    width: Number,
+    height: Number,
+    aspectRatio: String,
+    resolution: String,
+
+    duration: Number,
+
+    pages: Number,
+
+    format: String
+  },
+
+  recommendedFor: {
+    type: String,
+    enum: [
+      "instagram_post",
+      "instagram_story",
+      "instagram_reel",
+      "youtube_video",
+      "youtube_shorts",
+      "website",
+      "advertisement",
+      "general"
+    ]
+  },
+
+  uploadedAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
 const itemSchema = new mongoose.Schema(
   {
     seller: {
@@ -8,11 +57,16 @@ const itemSchema = new mongoose.Schema(
       required: true
     },
 
-    category: [
+    category: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
+      default: null
+    },
+
+    subCategories: [
       {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "Category",
-        required: true
+        ref: "SubCategory"
       }
     ],
 
@@ -39,29 +93,13 @@ const itemSchema = new mongoose.Schema(
       index: true
     },
 
-    media: [
-      {
-        type: {
-          type: String,
-          enum: ["image", "video", "audio", "document"],
-          required: true
-        },
-        filename: {
-          type: String,
-          required: true
-        },
-        uploadedAt: {
-          type: Date,
-          default: Date.now
-        }
-      }
-    ],
+    media: [mediaSchema],
 
     viewsCount: { type: Number, default: 0 },
     clicksCount: { type: Number, default: 0 },
     purchasesCount: { type: Number, default: 0 },
     likesCount: { type: Number, default: 0 },
-     favoritesCount: {
+    favoritesCount: {
       type: Number,
       default: 0
     },
@@ -72,6 +110,11 @@ const itemSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+itemSchema.index({ category: 1 });
+itemSchema.index({ subCategories: 1 });
+itemSchema.index({ createdAt: -1 });
+itemSchema.index({ seller: 1 });
 
 itemSchema.virtual("conversionRate").get(function () {
   if (!this.viewsCount) return 0;

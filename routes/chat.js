@@ -25,11 +25,6 @@ router.get(
   chatController.getMessages
 );
 
-router.put(
-  "/messages/seen/:conversationId",
-  authenticate,
-  chatController.markAsSeen
-);
 
 router.get(
   "/getChats",

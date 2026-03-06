@@ -20,7 +20,7 @@ exports.authenticate = async (req, res, next) => {
             const user = await User.findOne({ _id: decoded.userId, isDeleted: false, tokens: token }, { email: 1, phoneNumber: 1, role: 1, approvalStatus: 1, sellerRequest: 1 }).lean(true);
          
             if (!user) {
-                return res.status(401).json({ message: 'Token revoked. Please login.' });
+                return res.status(403).json({ message: 'Token revoked. Please login.' });
             }
             req.user = user;
             next();

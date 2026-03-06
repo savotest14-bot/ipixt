@@ -47,7 +47,7 @@ const {
 const validate = require("../middlewares/validate");
 const { authenticate } = require("../middlewares/authentication");
 const checkRole = require("../middlewares/checkRole");
-const { getAllCategories } = require("../controllers/category");
+const { getAllCategories, getSubCategoriesByCategory } = require("../controllers/category");
 const { upload } = require("../middlewares/upload");
 const { getCommissionForUser } = require("../controllers/commission");
 
@@ -92,4 +92,6 @@ router.get("/commission", authenticate, getCommissionForUser);
 router.patch("/notifications/settings", authenticate, notificationSettings);
 router.post("/switch-role", authenticate, switchRole);
 router.get("/download/original/:folder/:filename", authenticate,  downloadImage);
+router.get("/getSubCategoryByCategoryId/:categoryId", getSubCategoriesByCategory);
+
 module.exports = router;

@@ -20,11 +20,16 @@ const mediaRequestSchema = new mongoose.Schema(
       required: true
     },
 
-    categories: [
+    category: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
+      default: null
+    },
+
+    subCategories: [
       {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "Category",
-        required: true
+        ref: "SubCategory"
       }
     ],
 

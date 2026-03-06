@@ -6,7 +6,7 @@ exports.authenticate = async (req, res, next) => {
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({ message: "Unauthorized" });
+        return res.status(401).json({ message: "Unauthorized" });
     }
 
     const token = authHeader.split(" ")[1];
@@ -21,13 +21,26 @@ exports.authenticate = async (req, res, next) => {
         }
 
         try {
-            const user = await Admin.findOne({ _id: decoded.userId, isDeleted: false, tokens: token }, { email: 1, role: 1 }).lean(true);
+            const user = await Admin.findOne(
+                { _id: decoded.userId, isDeleted: false, tokens: token },
+                { email: 1, role: 1, permissions: 1, isDeleted: 1 }
+            ).lean();
 
             if (!user) {
-                return res.status(401).json({ message: 'Token revoked. Please login.' });
+                return res.status(401).json({
+                    message: "Token revoked. Please login."
+                });
             }
+
+            if (user.role === "subadmin" && user.isDeleted) {
+                return res.status(403).json({
+                    message: "Admin has suspended your account"
+                });
+            }
+
             req.user = user;
             next();
+
         } catch (error) {
             return res.status(500).send({ message: error.message });
         }

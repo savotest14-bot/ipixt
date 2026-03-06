@@ -4,7 +4,102 @@ const QRCode = require("qrcode");
 const mongoose = require("mongoose");
 const MediaRequest = require("../models/media");
 const { deleteFileSafe } = require("../functions/commons");
+const { addImageWatermark, addPdfWatermark } = require("../utils/upload");
+const fs = require("fs");
 const path = require("path");
+const {
+    getImageMetadata,
+    getVideoMetadata,
+    getAudioMetadata,
+    getPdfMetadata
+} = require("../utils/mediaMetadata");
+
+const BASE_UPLOAD_PATH = path.join(__dirname, "..", "uploads");
+
+function detectRecommendedUsage(aspectRatio) {
+
+    if (aspectRatio === "1:1") return "instagram_post";
+    if (aspectRatio === "4:5") return "instagram_story";
+    if (aspectRatio === "9:16") return "instagram_reel";
+    if (aspectRatio === "16:9") return "youtube_video";
+
+    return "general";
+}
+const processMediaFiles = async (files, type, folder) => {
+
+    const result = [];
+
+    for (const file of files) {
+
+        const filePath = path.join(BASE_UPLOAD_PATH, folder, file.filename);
+
+        try {
+
+            // Save original copy
+            const originalFolder = path.join(BASE_UPLOAD_PATH, "originals", folder);
+            if (!fs.existsSync(originalFolder)) {
+                fs.mkdirSync(originalFolder, { recursive: true });
+            }
+
+            const originalPath = path.join(originalFolder, file.filename);
+            fs.copyFileSync(filePath, originalPath);
+
+            // Apply watermark
+            if (type === "image") {
+                await addImageWatermark(filePath);
+            }
+
+            if (type === "document" && file.mimetype === "application/pdf") {
+                await addPdfWatermark(filePath);
+            }
+
+            // Extract metadata
+            let metadata = {};
+
+            if (type === "image") {
+                metadata = await getImageMetadata(filePath);
+            }
+
+            if (type === "video") {
+                metadata = await getVideoMetadata(filePath);
+            }
+
+            if (type === "audio") {
+                metadata = await getAudioMetadata(filePath);
+            }
+
+            if (type === "document") {
+                metadata = await getPdfMetadata(filePath);
+            }
+
+            result.push({
+                type,
+                filename: file.filename,
+                fileSize: file.size,
+                mimeType: file.mimetype,
+                metadata,
+                recommendedFor: detectRecommendedUsage(metadata.aspectRatio)
+            });
+
+        } catch (err) {
+
+            console.error("Media processing error:", err.message);
+
+            result.push({
+                type,
+                filename: file.filename,
+                fileSize: file.size,
+                mimeType: file.mimetype,
+                metadata: {}
+            });
+
+        }
+
+    }
+
+    return result;
+
+};
 
 
 exports.createItemWithQr = async (req, res) => {
@@ -15,6 +110,7 @@ exports.createItemWithQr = async (req, res) => {
             price,
             currency,
             category,
+            subCategories,
             format,
             tags,
             isPublished,
@@ -37,89 +133,87 @@ exports.createItemWithQr = async (req, res) => {
             );
         }
 
+        if (!category) {
+            return res.status(400).json({
+                message: "Category is required"
+            });
+        }
+
+        if (!mongoose.Types.ObjectId.isValid(category)) {
+            return res.status(400).json({
+                message: "Invalid category id"
+            });
+        }
+
+        // ---------- SUBCATEGORIES ----------
+        let parsedSubCategories = [];
+
+        if (subCategories) {
+            parsedSubCategories = Array.isArray(subCategories)
+                ? subCategories
+                : subCategories.split(",");
+
+            parsedSubCategories = parsedSubCategories
+                .map(id => id.trim())
+                .filter(Boolean);
+
+            const invalidIds = parsedSubCategories.filter(
+                id => !mongoose.Types.ObjectId.isValid(id)
+            );
+
+            if (invalidIds.length) {
+                return res.status(400).json({
+                    message: "Invalid subCategory id(s)",
+                    invalidIds
+                });
+            }
+        }
+
         const publicToken = crypto.randomBytes(16).toString("hex");
 
         const media = [];
 
         if (req.files?.mediaPhoto) {
-            req.files.mediaPhoto.forEach(file => {
-                media.push({
-                    type: "image",
-                    filename: file.filename
-                });
-            });
+            const images = await processMediaFiles(
+                req.files.mediaPhoto,
+                "image",
+                "items/images"
+            );
+            media.push(...images);
         }
 
         if (req.files?.mediaVideo) {
-            req.files.mediaVideo.forEach(file => {
-                media.push({
-                    type: "video",
-                    filename: file.filename
-                });
-            });
+            const videos = await processMediaFiles(
+                req.files.mediaVideo,
+                "video",
+                "items/videos"
+            );
+            media.push(...videos);
         }
 
         if (req.files?.mediaAudio) {
-            req.files.mediaAudio.forEach(file => {
-                media.push({
-                    type: "audio",
-                    filename: file.filename
-                });
-            });
+            const audios = await processMediaFiles(
+                req.files.mediaAudio,
+                "audio",
+                "items/audios"
+            );
+            media.push(...audios);
         }
 
         if (req.files?.mediaDocument) {
-            req.files.mediaDocument.forEach(file => {
-                media.push({
-                    type: "document",
-                    filename: file.filename
-                });
-            });
-        }
-
-        let categories = [];
-
-        if (Array.isArray(category)) {
-            categories = category;
-        } else if (typeof category === "string") {
-            try {
-                // Try parsing as JSON first
-                const parsed = JSON.parse(category);
-                if (Array.isArray(parsed)) {
-                    categories = parsed;
-                } else {
-                    categories = [category];
-                }
-            } catch (err) {
-                // Fallback: comma separated string
-                categories = category
-                    .split(",")
-                    .map(id => id.trim())
-                    .filter(Boolean);
-            }
-        }
-
-        if (!categories.length) {
-            return res.status(400).json({
-                message: "At least one category is required"
-            });
-        }
-
-        const invalidIds = categories.filter(
-            id => !mongoose.Types.ObjectId.isValid(id)
-        );
-
-        if (invalidIds.length) {
-            return res.status(400).json({
-                message: "Invalid category id(s)",
-                invalidIds
-            });
+            const docs = await processMediaFiles(
+                req.files.mediaDocument,
+                "document",
+                "items/documents"
+            );
+            media.push(...docs);
         }
 
 
         const item = await Item.create({
             seller: req.user._id,
-            category: categories,
+            category,
+            subCategories: parsedSubCategories,
             title,
             description,
             price,
@@ -197,6 +291,7 @@ exports.getMyItems = async (req, res) => {
         const [items, total] = await Promise.all([
             Item.find({ ...query, isDeleted: false })
                 .populate("category", "title")
+                 .populate("subCategories", "title")
                 .sort({ createdAt: -1 })
                 .skip(skip)
                 .limit(Number(limit)),
@@ -238,6 +333,7 @@ exports.getItemById = async (req, res) => {
             isDeleted: false
         })
             .populate("category", "title")
+             .populate("subCategories", "title")
             .populate("seller", "firstName lastName profilePic");
 
 
@@ -291,6 +387,7 @@ exports.updateItem = async (req, res) => {
             format,
             tags,
             category,
+            subCategories,
             isPublished,
             deleteMedia
         } = req.body;
@@ -299,6 +396,7 @@ exports.updateItem = async (req, res) => {
             return res.status(400).json({ message: "Invalid format" });
         }
 
+        // ---------- TAGS ----------
         if (tags !== undefined) {
             const formattedTags = Array.isArray(tags)
                 ? tags
@@ -307,31 +405,44 @@ exports.updateItem = async (req, res) => {
             item.tags = formattedTags.map(t => t.trim().toLowerCase());
         }
 
+        // ---------- CATEGORY ----------
         if (category !== undefined) {
-            const categories = Array.isArray(category)
-                ? category
-                : category.split(",").map(id => id.trim()).filter(Boolean);
 
-            if (!categories.length) {
+            if (!mongoose.Types.ObjectId.isValid(category)) {
                 return res.status(400).json({
-                    message: "At least one category is required"
+                    message: "Invalid category id"
                 });
             }
 
-            const invalidIds = categories.filter(
+            item.category = category;
+        }
+
+        // ---------- SUBCATEGORIES ----------
+        if (subCategories !== undefined) {
+
+            const parsedSubCategories = Array.isArray(subCategories)
+                ? subCategories
+                : subCategories.split(",");
+
+            const cleaned = parsedSubCategories
+                .map(id => id.trim())
+                .filter(Boolean);
+
+            const invalidIds = cleaned.filter(
                 id => !mongoose.Types.ObjectId.isValid(id)
             );
 
             if (invalidIds.length) {
                 return res.status(400).json({
-                    message: "Invalid category id(s)",
+                    message: "Invalid subCategory id(s)",
                     invalidIds
                 });
             }
 
-            item.category = categories;
+            item.subCategories = cleaned;
         }
 
+        // ---------- BASIC FIELDS ----------
         if (title !== undefined) item.title = title;
         if (description !== undefined) item.description = description;
         if (price !== undefined) item.price = price;
@@ -339,6 +450,7 @@ exports.updateItem = async (req, res) => {
         if (format !== undefined) item.format = format;
         if (isPublished !== undefined) item.isPublished = isPublished;
 
+        // ---------- DELETE MEDIA ----------
         if (deleteMedia) {
             const mediaIds = Array.isArray(deleteMedia)
                 ? deleteMedia
@@ -353,13 +465,32 @@ exports.updateItem = async (req, res) => {
             );
 
             mediaToDelete.forEach(m => {
+
+                const folderMap = {
+                    image: "items/images",
+                    video: "items/videos",
+                    audio: "items/audios",
+                    document: "items/documents"
+                };
+
+                const folder = folderMap[m.type];
+
                 const filePath = path.join(
-                    __dirname,
-                    "..",
-                    "uploads",
+                    BASE_UPLOAD_PATH,
+                    folder,
                     m.filename
                 );
+
+                const originalPath = path.join(
+                    BASE_UPLOAD_PATH,
+                    "originals",
+                    folder,
+                    m.filename
+                );
+
                 deleteFileSafe(filePath);
+                deleteFileSafe(originalPath);
+
             });
 
             item.media = item.media.filter(
@@ -367,43 +498,45 @@ exports.updateItem = async (req, res) => {
             );
         }
 
+        // ---------- ADD NEW MEDIA ----------
         if (req.files && Object.keys(req.files).length > 0) {
+
             const newMedia = [];
 
-            if (req.files.mediaPhoto) {
-                req.files.mediaPhoto.forEach(file => {
-                    newMedia.push({
-                        type: "image",
-                        filename: file.filename
-                    });
-                });
+            if (req.files?.mediaPhoto) {
+                const images = await processMediaFiles(
+                    req.files.mediaPhoto,
+                    "image",
+                    "items/images"
+                );
+                newMedia.push(...images);
             }
 
-            if (req.files.mediaVideo) {
-                req.files.mediaVideo.forEach(file => {
-                    newMedia.push({
-                        type: "video",
-                        filename: file.filename
-                    });
-                });
+            if (req.files?.mediaVideo) {
+                const videos = await processMediaFiles(
+                    req.files.mediaVideo,
+                    "video",
+                    "items/videos"
+                );
+                newMedia.push(...videos);
             }
 
-            if (req.files.mediaAudio) {
-                req.files.mediaAudio.forEach(file => {
-                    newMedia.push({
-                        type: "audio",
-                        filename: file.filename
-                    });
-                });
+            if (req.files?.mediaAudio) {
+                const audios = await processMediaFiles(
+                    req.files.mediaAudio,
+                    "audio",
+                    "items/audios"
+                );
+                newMedia.push(...audios);
             }
 
-            if (req.files.mediaDocument) {
-                req.files.mediaDocument.forEach(file => {
-                    newMedia.push({
-                        type: "document",
-                        filename: file.filename
-                    });
-                });
+            if (req.files?.mediaDocument) {
+                const docs = await processMediaFiles(
+                    req.files.mediaDocument,
+                    "document",
+                    "items/documents"
+                );
+                newMedia.push(...docs);
             }
 
             item.media.push(...newMedia);
@@ -479,7 +612,6 @@ exports.softDeleteItem = async (req, res) => {
 exports.getIncomingMediaRequests = async (req, res) => {
     try {
         const sellerId = req.user._id;
-
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
         const skip = (page - 1) * limit;
@@ -499,7 +631,8 @@ exports.getIncomingMediaRequests = async (req, res) => {
         const [requests, total] = await Promise.all([
             MediaRequest.find(filter)
                 .populate("buyer", "firstName lastName profilePic")
-                .populate("categories", "title")
+                 .populate("subCategories", "title")
+                .populate("category", "title")
                 .sort({ createdAt: -1 })
                 .skip(skip)
                 .limit(limit)

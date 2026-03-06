@@ -1,181 +1,293 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
-  <title>Realtime Chat Test (Correct)</title>
+  <title>Realtime Chat Test</title>
+
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 
   <style>
-    body { font-family: Arial; padding: 20px; background: #f5f5f5; }
-    input, button { padding: 6px; margin: 4px 0; }
-    #chat { height: 350px; background: #fff; border: 1px solid #ccc; overflow-y: auto; padding: 10px; }
-    .me { color: green; }
-    .other { color: blue; }
-    .system { color: gray; font-size: 13px; }
-    .tick.grey { color: gray; }
-    .tick.blue { color: #1e88e5; font-weight: bold; }
+    body {
+      font-family: Arial;
+      padding: 20px;
+      background: #f5f5f5
+    }
+
+    input,
+    button {
+      padding: 6px;
+      margin: 4px 0
+    }
+
+    #chat {
+      height: 350px;
+      background: #fff;
+      border: 1px solid #ccc;
+      overflow: auto;
+      padding: 10px
+    }
+
+    .me {
+      color: green
+    }
+
+    .other {
+      color: blue
+    }
+
+    .system {
+      color: gray;
+      font-size: 13px
+    }
+
+    .tick.grey {
+      color: gray
+    }
+
+    .tick.blue {
+      color: #1e88e5;
+      font-weight: bold
+    }
   </style>
 </head>
+
 <body>
 
-<h2>🧪 Realtime Chat Test (Socket.js Aligned)</h2>
+  <h2>🧪 Chat Tester (User / Admin)</h2>
 
-JWT Token<br>
-<input id="token" size="90"><br>
+  JWT Token<br>
+  <input id="token" size="80"><br>
 
-My User ID<br>
-<input id="myId"><br>
+  My ID (User/Admin)<br>
+  <input id="myId"><br>
 
-Other User ID<br>
-<input id="otherId"><br>
+  Receiver ID<br>
+  <input id="otherId"><br>
 
-<button onclick="connectSocket()">🔌 Connect Socket</button>
+  Receiver Model<br>
+  <select id="receiverModel">
+    <option value="User">User</option>
+    <option value="Admin">Admin</option>
+  </select>
 
-<hr>
+  <br>
 
-<button onclick="createConversation()">💬 Create / Get Conversation</button>
-<p><b>Conversation ID:</b> <span id="conversationId">—</span></p>
+  <button onclick="connectSocket()">🔌 Connect Socket</button>
 
-<hr>
+  <hr>
 
-<input id="message" placeholder="Type message"><br>
-<input type="file" id="files" multiple><br>
+  <button onclick="createConversation()">💬 Create / Get Conversation</button>
 
-<button onclick="sendMessage()">📨 Send</button>
-<button onclick="markSeen()">✔✔ Mark Seen</button>
+  <p><b>Conversation ID:</b> <span id="conversationId">—</span></p>
 
-<div id="typing"></div>
-<div id="chat"></div>
+  <hr>
 
-<script>
-let socket;
-let conversationId;
-const API = "http://localhost:8000/api/chat";
+  <input id="message" placeholder="Type message"><br>
+  <input type="file" id="files" multiple><br>
 
-/* ---------------- SOCKET ---------------- */
-function connectSocket() {
-  socket = io("http://localhost:8000");
+  <button onclick="sendMessage()">📨 Send</button>
+  <button onclick="markSeen()">✔✔ Mark Seen</button>
 
-  socket.emit("user-online", myId.value);
+  <div id="typing"></div>
+  <div id="chat"></div>
 
-  socket.on("user-status", d => {
-    system(`User ${d.userId} is ${d.online ? "ONLINE 🟢" : "OFFLINE ⚪"}`);
-  });
+  <script>
 
-  socket.on("receive-message", async ({ messageId }) => {
-    const msg = await fetchMessage(messageId);
-    render("other", msg.content || "[Media]");
-  });
+    let socket;
+    let conversationId;
 
-  socket.on("message-status", ({ messageId, status }) => {
-    updateTick(messageId, status);
-  });
+    const API = "http://localhost:4002/api/chat";
+    const renderedMessages = new Set();
 
-  socket.on("typing", () => typing.innerText = "Typing...");
-  socket.on("stop-typing", () => typing.innerText = "");
+    /* ---------------- CONNECT SOCKET ---------------- */
 
-  alert("Socket connected");
-}
+    function connectSocket() {
 
-/* ---------------- REST ---------------- */
-async function createConversation() {
-  const res = await fetch(`${API}/conversation`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": "Bearer " + token.value
-    },
-    body: JSON.stringify({ userId: otherId.value })
-  });
+      socket = io("http://localhost:4002");
 
-  const data = await res.json();
-  conversationId = data._id;
-  document.getElementById("conversationId").innerText = conversationId;
-  system("Conversation ready");
-}
+      socket.emit("user-online", { userId: myId.value });
 
-async function sendMessage() {
-  const form = new FormData();
-  form.append("conversationId", conversationId);
-  form.append("receiverId", otherId.value);
-  form.append("content", message.value);
+      socket.on("user-status", (d) => {
+        system(`User ${d.userId} ${d.online ? "ONLINE 🟢" : "OFFLINE ⚪"}`);
+      });
 
-  for (let f of files.files) {
-    form.append("chatMedia", f);
-  }
+      socket.on("receive-message", async ({ messageId }) => {
 
-  const res = await fetch(`${API}/messages`, {
-    method: "POST",
-    headers: { "Authorization": "Bearer " + token.value },
-    body: form
-  });
+        if (renderedMessages.has(messageId)) return;
 
-  const msg = await res.json();
+        const msg = await fetchMessage(messageId);
 
-  render("me", msg.content || "[Media]");
-  updateTick(msg._id, "sent");
+        if (!msg) return;
 
-  // 🔥 THIS IS THE MISSING PIECE
-  socket.emit("send-message", {
-    messageId: msg._id,
-    receiverId: otherId.value
-  });
+        renderedMessages.add(messageId);
 
-  message.value = "";
-  files.value = "";
-}
+        const who = msg.sender?.senderId === myId.value ? "me" : "other";
 
-async function fetchMessage(messageId) {
-  const res = await fetch(`${API}/messages/${conversationId}`, {
-    headers: { "Authorization": "Bearer " + token.value }
-  });
+        render(who, msg.content || "[media]", messageId);
 
-  const messages = await res.json();
-  return messages.find(m => m._id === messageId);
-}
+      });
 
-/* ---------------- SEEN ---------------- */
-function markSeen() {
-  socket.emit("message-seen", {
-    conversationId,
-    userId: myId.value
-  });
-}
+      socket.on("message-status", ({ messageId, status }) => {
+        updateTick(messageId, status);
+      });
 
-/* ---------------- UI ---------------- */
-const ticks = {};
+      socket.on("typing", ({ userId }) => {
+        if (userId !== myId.value) {
+          typing.innerText = "Typing...";
+        }
+      });
 
-function render(who, text) {
-  const div = document.createElement("div");
-  div.innerHTML = `<b>${who === "me" ? "Me" : "Other"}:</b> ${text}
-    <span class="tick grey">✔</span>`;
-  chat.appendChild(div);
-  ticks[text] = div.querySelector(".tick");
-  chat.scrollTop = chat.scrollHeight;
-}
+      socket.on("stop-typing", () => {
+        typing.innerText = "";
+      });
 
-function updateTick(_, status) {
-  const last = document.querySelector(".tick:last-child");
-  if (!last) return;
+      alert("Socket Connected");
 
-  if (status === "delivered") {
-    last.innerText = "✔✔";
-    last.className = "tick grey";
-  }
+    }
 
-  if (status === "seen") {
-    last.innerText = "✔✔";
-    last.className = "tick blue";
-  }
-}
+    /* ---------------- CREATE CONVERSATION ---------------- */
 
-function system(text) {
-  const div = document.createElement("div");
-  div.className = "system";
-  div.innerText = "SYSTEM: " + text;
-  chat.appendChild(div);
-}
-</script>
+    async function createConversation() {
+
+      const res = await fetch(`${API}/conversation`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token.value
+        },
+        body: JSON.stringify({
+          receiverId: otherId.value,
+          receiverModel: receiverModel.value
+        })
+      });
+
+      const data = await res.json();
+
+      conversationId = data._id;
+
+      document.getElementById("conversationId").innerText = conversationId;
+
+      socket.emit("join-conversation", conversationId);
+
+      system("Conversation Ready");
+
+    }
+
+    /* ---------------- SEND MESSAGE ---------------- */
+
+    async function sendMessage() {
+
+      const form = new FormData();
+
+      form.append("conversationId", conversationId);
+      form.append("receiverId", otherId.value);
+      form.append("receiverModel", receiverModel.value);
+      form.append("content", message.value);
+
+      for (let f of files.files) {
+        form.append("chatMedia", f);
+      }
+
+      const res = await fetch(`${API}/messages`, {
+        method: "POST",
+        headers: { Authorization: "Bearer " + token.value },
+        body: form
+      });
+
+      const msg = await res.json();
+
+      renderedMessages.add(msg._id);
+
+      render("me", msg.content || "[media]", msg._id);
+
+      socket.emit("send-message", {
+        messageId: msg._id,
+        conversationId
+      });
+
+      message.value = "";
+      files.value = "";
+
+    }
+
+    /* ---------------- FETCH MESSAGE ---------------- */
+
+    async function fetchMessage(messageId) {
+
+      const res = await fetch(`${API}/messages/${conversationId}`, {
+        headers: { Authorization: "Bearer " + token.value }
+      });
+
+      const msgs = await res.json();
+
+      return msgs.find(m => m._id === messageId);
+
+    }
+
+    /* ---------------- SEEN ---------------- */
+
+    function markSeen() {
+      socket.emit("message-seen", { conversationId });
+    }
+
+    /* ---------------- TYPING EVENTS ---------------- */
+
+    message.addEventListener("input", () => {
+      socket.emit("typing", { conversationId });
+    });
+
+    message.addEventListener("blur", () => {
+      socket.emit("stop-typing", { conversationId });
+    });
+
+    /* ---------------- UI ---------------- */
+
+    function render(who, text, messageId) {
+
+      const div = document.createElement("div");
+
+      div.innerHTML = `<b>${who === "me" ? "Me" : "Other"}:</b> ${text}
+  <span class="tick grey" data-id="${messageId}">✔</span>`;
+
+      chat.appendChild(div);
+
+      chat.scrollTop = chat.scrollHeight;
+
+    }
+
+    function updateTick(messageId, status) {
+
+      const tick = document.querySelector(`[data-id="${messageId}"]`);
+
+      if (!tick) return;
+
+      if (status === "delivered") {
+        tick.innerText = "✔✔";
+        tick.className = "tick grey";
+      }
+
+      if (status === "seen") {
+        tick.innerText = "✔✔";
+        tick.className = "tick blue";
+      }
+
+    }
+
+    function system(text) {
+
+      const div = document.createElement("div");
+
+      div.className = "system";
+
+      div.innerText = "SYSTEM: " + text;
+
+      chat.appendChild(div);
+
+    }
+
+  </script>
 
 </body>
+
 </html>
